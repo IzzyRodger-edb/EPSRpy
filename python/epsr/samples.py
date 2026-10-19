@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from . import tools
 from .io import Mint01, read_mint01
+from .settings import keywords
 
 if TYPE_CHECKING:
     from .system import System
@@ -32,7 +33,6 @@ __all__ = [
     "check_sample_names",
     "NATURAL",
     "DATASET_KEYWORDS",
-    "DEFAULT_RSHMIN",
 ]
 
 #: The composition of an atom type that is not given: the natural element.
@@ -40,8 +40,6 @@ NATURAL: Mapping[int, float] = {0: 1.0}
 #: Keywords of a ``data`` block of the ``.EPSR.inp`` file set per sample (besides
 #: ``datafile`` and ``wtsfile``), in file order.
 DATASET_KEYWORDS = ("nrtype", "rshmin", "szeros", "tweak", "efilereq", "porodadd")
-#: ``rshmin`` when neither the sample nor the settings give one (EPSR's default).
-DEFAULT_RSHMIN = 0.7
 #: ``nrtype`` values EPSR knows (see the EPSR manual); 5 is a Gudrun ``.mint01`` file.
 DATA_TYPES = (1, 2, 3, 4, 5)
 
@@ -76,8 +74,10 @@ class NeutronSample:
         <epsr.system.AtomType.exchangeable>`; a list replaces them for this
         sample only.
     nrtype, rshmin, szeros, tweak, efilereq, porodadd:
-        The ``.EPSR.inp`` keywords of this dataset (EPSR names). ``rshmin=None``
-        takes the value of the project settings, or 0.7 Å.
+        The ``.EPSR.inp`` keywords of this dataset (EPSR names). ``None`` (the
+        default, except for ``nrtype``) takes the value given for all datasets in
+        the project settings, else EPSR's default (``rshmin`` 0.7 Å, ``tweak`` 1,
+        ``efilereq`` 1, ``szeros`` 0, ``porodadd`` 0).
     """
 
     def __init__(
@@ -89,10 +89,10 @@ class NeutronSample:
         exchangeable: Iterable[str] | None = None,
         nrtype: int = 5,
         rshmin: float | None = None,
-        tweak: float = 1.0,
-        efilereq: float = 1.0,
-        szeros: float = 0.0,
-        porodadd: float = 0.0,
+        tweak: float | None = None,
+        efilereq: float | None = None,
+        szeros: float | None = None,
+        porodadd: float | None = None,
     ) -> None:
         if not isinstance(name, str) or not _NAME_PATTERN.match(name):
             raise ValueError(
@@ -132,13 +132,11 @@ class NeutronSample:
         self.exchangeable: tuple[str, ...] | None = (
             None if exchangeable is None else tuple(exchangeable)
         )
-        self.rshmin = (
-            None if rshmin is None else _non_negative(rshmin, f"{name}: rshmin")
-        )
-        self.tweak = _finite(tweak, f"{name}: tweak")
-        self.efilereq = _finite(efilereq, f"{name}: efilereq")
-        self.szeros = _finite(szeros, f"{name}: szeros")
-        self.porodadd = _finite(porodadd, f"{name}: porodadd")
+        self.rshmin = _optional(rshmin, f"{name}: rshmin", minimum=0.0)
+        self.tweak = _optional(tweak, f"{name}: tweak")
+        self.efilereq = _optional(efilereq, f"{name}: efilereq")
+        self.szeros = _optional(szeros, f"{name}: szeros")
+        self.porodadd = _optional(porodadd, f"{name}: porodadd")
 
     def __repr__(self) -> str:
         isotopes = ", ".join(
@@ -211,20 +209,33 @@ class NeutronSample:
         """The ``<name>.NWTS.dat`` text ``nwts`` reads for this sample in ``system``."""
         return tools.render_nwts(self.name, system.name, self.nwts_components(system))
 
-    def dataset_keywords(self, rshmin: float | None = None) -> dict[str, Any]:
+    def dataset_keywords(
+        self,
+        defaults: Mapping[str, Any] | None = None,
+        overrides: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """The keywords of this sample's ``data`` block of the ``.EPSR.inp`` file.
 
-        ``rshmin`` is the fallback when the sample gives none (the project
-        setting); EPSR's default 0.7 Å otherwise.
+        Each value comes from ``overrides`` (settings given for this dataset),
+        else from the sample, else from ``defaults`` (settings given for all
+        datasets), else from EPSR's keyword table.
         """
+        table = keywords()
         values: dict[str, Any] = {
             "datafile": self.data_file.name,
             "wtsfile": self.weights_file,
         }
         for keyword in DATASET_KEYWORDS:
-            values[keyword] = getattr(self, keyword)
-        if values["rshmin"] is None:
-            values["rshmin"] = DEFAULT_RSHMIN if rshmin is None else rshmin
+            value = getattr(self, keyword)
+            if overrides and keyword in overrides:
+                value = overrides[keyword]
+            elif value is None:
+                value = (defaults or {}).get(keyword)
+            if value is None:
+                default = table[keyword].default
+                is_integer = table[keyword].value_type == "i"
+                value = int(default) if is_integer else float(default)
+            values[keyword] = value
         return values
 
     def notes(self, q_max: float | None = None) -> list[str]:
@@ -300,8 +311,12 @@ def _finite(value: float, what: str) -> float:
     return value
 
 
-def _non_negative(value: float, what: str) -> float:
+def _optional(
+    value: float | None, what: str, minimum: float | None = None
+) -> float | None:
+    if value is None:
+        return None
     value = _finite(value, what)
-    if value < 0:
-        raise ValueError(f"{what} must be >= 0")
+    if minimum is not None and value < minimum:
+        raise ValueError(f"{what} must be >= {minimum:g}")
     return value

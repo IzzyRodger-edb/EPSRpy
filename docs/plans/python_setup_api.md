@@ -70,7 +70,7 @@ started without the user's agreement, even if it looks small.
 | C2 | `Molecule`: named atoms + bonds/angles/rotations by name or index (D4); `vibtemp`/`angtemp`/`dihtemp`; `render_mol`; `from_geometry`, `from_xyz`, `from_mol`, `from_ato`, `Molecule.atom`; rejects dihedrals | 2 | WF §1 | `makemole` on the rendered water and silica `.mol` gives `.ato` files identical to `validation/` | **done** (Phase 2): water and silica `.mol` byte-identical to `validation/`, same templates from `makemole`; `from_mol` round trips; `from_ato` approximate (see notes) |
 | C3 | `System`: `add` order = type order, `density` in atoms/Å³ (D6), `temperature`, engine limits, `pair_parameters()` with a `terms` column | 2 | WF §2 | the water table of §4.3; limit errors | **done** (Phase 2): `System`, `pair_parameters()` → `PairTable` (printable, `to_dataframe()`) |
 | C4 | `NeutronSample`: isotopes as `{mass_number: fraction}` (D7), checked against the isotope table; per-sample `exchangeable` override; per-dataset keywords; `.mint01` validation | 3 | WF §3 | rendered `.NWTS.dat` → `nwts` → `.NWTStot.wts` identical to `validation/water`; bad isotopes raise | **done** (Phase 3): `epsr.samples.NeutronSample`, `epsr.io.read_mint01`; water and silica weights identical to `validation/` (`tests/test_samples.py`) |
-| C5 | `Settings`: the keyword table binding; EPSR names (D1); unknown keys rejected; routing to `.inp`/`.pcof`/data blocks; `.inp` rendering | 0, 4 | WF §4 | table round trip; `.inp` after the scratch run identical to the validated one | Phase 0 part done: `_core.epsr_keywords()` with file routing |
+| C5 | `Settings`: the keyword table binding; EPSR names (D1); unknown keys rejected; routing to `.inp`/`.pcof`/data blocks; `.inp` rendering | 0, 4 | WF §4 | table round trip; `.inp` after the scratch run identical to the validated one | **done** (Phases 0, 4): `epsr.keywords()`, `epsr.Settings`; scratch run from the rendered `.inp` identical to the validated steps, every file (`tests/test_settings.py`) |
 | C6 | Typed setup tools: `makemole`, `mixato`, `randomise`, `fmole` (`.mol` handled), `nwts` from structured input | 1 | inside `create` | the water box rebuilt with these calls is identical to `validation/water` | **done** (Phase 1): `tools.makemole/mixato/randomise/fmole/nwts(components=)`; water box and weights identical to the validated steps (`tests/test_setup_tools.py`) |
 | C7 | `seed=` (D3, §1.7): `set_rng_seed`; `None` = default | 0, 1 | WF §4 | the §1.7 table: default = seed 1, 42 reproducible and different, 0 rejected | Phases 0–1 done: `_core.set_rng_seed`, `tools.set_rng_seed`, `tools.randomise(seed=)`; §1.7 table reproduced. `Project.create(seed=)` in Phase 5 |
 | C8 | `Project.create`: steps 1–6 of §1.6, no EPSR run (D2), `epsr_project.json`, pending `.pcof` settings, rejects `ereq ≠ 0` | 5 | WF §4 | folder contents before the first run identical to the validated case at that step |  |
@@ -177,6 +177,24 @@ started without the user's agreement, even if it looks small.
     to ~50 Å⁻¹ beyond the default 30 Å⁻¹, and EPSR simply ignores the rest.
   - `tools.render_keyword_file` / `tools.render_nwts` give the text without writing a
     file; `write_keyword_file` and `nwts(components=)` use them.
+- **Phase 4 (2026-10-19).**
+  - **The `.inp` is complete**, every table keyword in table order (managed ones set
+    by the API, the rest from the settings or the table defaults), in EPSR's layout
+    (no blank line before `q`). After the scratch run the whole folder is identical
+    to the validated steps' folder (only the steps' `mixato.stdin` differs), so the
+    table defaults are safe.
+  - **Managed keywords** are refused by `Settings` with the reason:
+    `fnameato`, `fnamepcof`, `ndata`, `datafile`, `wtsfile`, `rho`, `ireset`, `iinit`,
+    `nsumt` and `niter` (the last is `iterations=` of `run`/`equilibrate`/`refine`).
+  - **Values:** reals are written in their shortest exact form, always as reals
+    (`ereq=3` → `3.0`, the text `steps.txt` sets), integers as integers; tuples and
+    multi-word strings are joined (`qwidthqmax=(0.2, 5.0)`).
+  - **Dataset keywords, order of precedence:** settings for that dataset
+    (`settings={"data": {"D2O": {...}}}`) > the `NeutronSample`'s own value > settings
+    given globally (`settings={"rshmin": 0.7}`) > the table default. For this,
+    `NeutronSample`'s `tweak`, `efilereq`, `szeros` and `porodadd` now default to `None`
+    (resolved values are unchanged).
+  - Mellor's `auto_rshmin` is `epsr.settings.suggest_rshmin(system)`, opt-in only.
 
 ### Out of scope until agreed with the user
 

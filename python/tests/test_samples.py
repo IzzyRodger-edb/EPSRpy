@@ -148,9 +148,10 @@ def test_sample_defaults_and_keywords() -> None:
         "efilereq": 1.0,
         "porodadd": 0.0,
     }
-    assert d2o.dataset_keywords(rshmin=0.9)["rshmin"] == 0.9
+    assert d2o.dataset_keywords({"rshmin": 0.9})["rshmin"] == 0.9
     own = NeutronSample("D2O", WATER_DATA / "SLS18502-D2O.mint01", rshmin=1.1)
-    assert own.dataset_keywords(rshmin=0.9)["rshmin"] == 1.1
+    assert own.dataset_keywords({"rshmin": 0.9})["rshmin"] == 1.1
+    assert own.dataset_keywords({"rshmin": 0.9}, {"rshmin": 1.3})["rshmin"] == 1.3
     assert d2o.data is not None and d2o.data.n_points == 997
     assert "D2O" in repr(d2o) and "HW 2 1" in repr(d2o)
 
