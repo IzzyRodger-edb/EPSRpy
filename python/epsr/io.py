@@ -24,7 +24,14 @@ __all__ = [
     "read_table_series",
     "read_erg",
     "read_keyword_file",
+    "Mint01",
+    "read_mint01",
+    "BraggReflections",
+    "BraggIntensities",
+    "read_bragg",
+    "read_inten",
     "ERG_COLUMNS",
+    "MAX_DATA_POINTS",
 ]
 
 FloatArray = npt.NDArray[np.float64]
@@ -283,6 +290,194 @@ def read_keyword_file(path: str | PathLike[str]) -> KeywordFile:
         blocks=blocks,
         descriptions=descriptions,
         trailer=trailer,
+    )
+
+
+#: Most data points EPSR reads from one data file (``MQD`` in ``state.rs``).
+MAX_DATA_POINTS = 5000
+#: Fewer rows than this and the file is taken for something else than a ``.mint01``.
+MIN_DATA_POINTS = 10
+
+
+@dataclass(frozen=True)
+class Mint01:
+    """A Gudrun ``.mint01`` file: interference differential cross section F(Q).
+
+    Header lines start with ``#``; the second is the sample title. The data are
+    three columns, Q (Å⁻¹), F(Q) and its error. EPSR (``nrtype 5``) treats each Q
+    as a histogram bin edge, replaces it by the midpoint to the next one and drops
+    the last row, which is why Gudrun ends the table with a row of zeros.
+    """
+
+    path: Path
+    header: tuple[str, ...]
+    q: FloatArray
+    f: FloatArray
+    errors: FloatArray
+
+    @property
+    def title(self) -> str:
+        """The sample title (second header line, else the first, else the file name)."""
+        if len(self.header) > 1 and self.header[1]:
+            return self.header[1]
+        return self.header[0] if self.header else self.path.name
+
+    @property
+    def n_points(self) -> int:
+        return len(self.q)
+
+    @property
+    def valid(self) -> npt.NDArray[np.bool_]:
+        """Rows that carry data (not the zero padding at the end)."""
+        return ~((self.f == 0.0) & (self.errors == 0.0))
+
+    @property
+    def q_range(self) -> tuple[float, float]:
+        """Lowest and highest Q of the rows with data."""
+        q = self.q[self.valid]
+        return float(np.min(q)), float(np.max(q))
+
+    def warnings(self) -> list[str]:
+        """Things EPSR will do with this file that may surprise (nothing is wrong)."""
+        notes = []
+        if np.any(np.diff(self.q) <= 0):
+            notes.append(
+                "Q is not strictly increasing; EPSR expects ascending bin edges"
+            )
+        if self.f[-1] != 0.0 or self.errors[-1] != 0.0:
+            notes.append(
+                "the last row is not a zero row; EPSR treats Q as bin edges and drops "
+                "the last point"
+            )
+        return notes
+
+
+def read_mint01(path: str | PathLike[str]) -> Mint01:
+    """Read a ``.mint01`` file, refusing anything EPSR could not use.
+
+    Raises ``ValueError`` when the file has rows that are not three numbers, fewer
+    than 10 rows, more than :data:`MAX_DATA_POINTS` rows (EPSR's ``MQD``) or only
+    zero rows; ``FileNotFoundError`` when it does not exist.
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"data file {path} does not exist")
+    header: list[str] = []
+    rows: list[tuple[float, float, float]] = []
+    for number, line in enumerate(path.read_text(encoding="latin-1").splitlines(), 1):
+        words = line.split()
+        if not words:
+            continue
+        if words[0].startswith("#"):
+            if not rows:
+                header.append(line.strip().lstrip("#").strip())
+            continue
+        try:
+            values = [float(word.replace("D", "E").replace("d", "e")) for word in words]
+        except ValueError:
+            values = []
+        if len(values) != 3:
+            raise ValueError(
+                f"{path.name}, line {number}: expected three numbers (Q, F(Q), error), "
+                f"got {line.strip()!r}"
+            )
+        rows.append((values[0], values[1], values[2]))
+    if len(rows) < MIN_DATA_POINTS:
+        raise ValueError(f"{path.name}: only {len(rows)} data rows; not a .mint01 file")
+    if len(rows) > MAX_DATA_POINTS:
+        raise ValueError(
+            f"{path.name}: {len(rows)} data points; EPSR reads at most {MAX_DATA_POINTS}"
+        )
+    table = np.array(rows, dtype=float)
+    data = Mint01(path, tuple(header), table[:, 0], table[:, 1], table[:, 2])
+    if not data.valid.any():
+        raise ValueError(f"{path.name}: every row is zero; there is nothing to fit")
+    return data
+
+
+#: Marker lines of a ``.bragg`` file; "refections" is the engine's own spelling (sic).
+BRAGG_COUNT_MARKER = "# Number of Bragg refections calculated:"
+BRAGG_UNIQUE_VALUES_MARKER = "Unique Bragg Q values"
+
+
+@dataclass(frozen=True)
+class BraggReflections:
+    """The Bragg reflections EPSR enumerated for a crystal (``.EPSR.bragg``).
+
+    ``q`` and ``multiplicity`` list the unique Q values (Å⁻¹) in the order the
+    engine enumerated them (not sorted; (0 0 0) at Q = 0 sits mid-list).
+    """
+
+    path: Path
+    n_reflections: int
+    q: FloatArray
+    multiplicity: npt.NDArray[np.int64]
+
+    @property
+    def n_unique(self) -> int:
+        return len(self.q)
+
+
+def read_bragg(path: str | PathLike[str]) -> BraggReflections:
+    """Read a ``.EPSR.bragg`` file: the number of reflections and the unique Q values."""
+    path = Path(path)
+    n_reflections, q_values, multiplicities = 0, [], []
+    listing_unique_values = False
+    for line in path.read_text(encoding="latin-1").splitlines():
+        words = line.lstrip("# ").split()
+        if line.startswith(BRAGG_COUNT_MARKER):
+            n_reflections = int(words[-1])
+        elif BRAGG_UNIQUE_VALUES_MARKER in line:
+            listing_unique_values = True
+        elif listing_unique_values and len(words) == 3:
+            q_values.append(float(words[1]))
+            multiplicities.append(int(float(words[2])))
+    return BraggReflections(
+        path,
+        n_reflections,
+        np.array(q_values, dtype=float),
+        np.array(multiplicities, dtype=np.int64),
+    )
+
+
+@dataclass(frozen=True)
+class BraggIntensities:
+    """The Bragg intensities of every atom pair on the Q grid (``.EPSR.inten``).
+
+    Arrays are ``(n_pairs, n_q)``, pairs in the simulation's pair order:
+    ``intramolecular`` is the current intramolecular partial S(Q), ``bragg`` the
+    Bragg intensity and ``convolved`` the Bragg intensity broadened by the peak
+    width (``qwidthqmax``).
+    """
+
+    path: Path
+    q: FloatArray
+    intramolecular: FloatArray
+    bragg: FloatArray
+    convolved: FloatArray
+
+    @property
+    def n_pairs(self) -> int:
+        return int(self.bragg.shape[0])
+
+
+def read_inten(path: str | PathLike[str]) -> BraggIntensities:
+    """Read a ``.EPSR.inten`` file (header ``# n_pairs ...``, then Q and three values per pair)."""
+    path = Path(path)
+    header = path.read_text(encoding="latin-1").splitlines()[0].lstrip("# ").split()
+    n_pairs = int(header[0])
+    table = np.loadtxt(path, comments="#", ndmin=2)
+    if table.shape[1] != 1 + 3 * n_pairs:
+        raise ValueError(
+            f"{path.name}: {table.shape[1]} columns, expected 1 + 3 x {n_pairs} pairs"
+        )
+    per_pair = table[:, 1:].reshape(len(table), n_pairs, 3)
+    return BraggIntensities(
+        path,
+        table[:, 0],
+        per_pair[:, :, 0].T.copy(),
+        per_pair[:, :, 1].T.copy(),
+        per_pair[:, :, 2].T.copy(),
     )
 
 

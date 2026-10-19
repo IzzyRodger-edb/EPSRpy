@@ -42,12 +42,40 @@ Every run overwrites `.ato`, `.pcof`, `.EPSR.inp` and `.EPSR.inpa` and appends t
 `.erg`; that is how EPSR carries its state from run to run. The 35 setup and
 analysis programs run as `epsr.tools.run(folder, "nwts", ["sample.NWTS.dat"])`.
 
+## Set up a system from Python
+
+A new simulation is defined in Python and built by EPSR's own setup programs; no
+EPSR input file is written by hand
+([examples/07_water_from_scratch](examples/07_water_from_scratch/water_from_scratch.py)):
+
+```python
+from epsr import AtomType, Molecule, NeutronSample, Project, System
+
+OW = AtomType("OW", element="O", epsilon=0.6503, sigma=3.165492, charge=-0.82,
+              coarse_grain={"rmax": 1.55})
+HW = AtomType("HW", element="H", epsilon=0.0, sigma=0.0, charge=0.41, mass=2.0,
+              exchangeable=True)
+water = Molecule.from_geometry("Water", centre=("O", OW),
+                               arms=[("H1", HW, 0.976), ("H2", HW, 0.976)], angle=107.134)
+system = System("waterbox", temperature=300.0, density=0.1).add(water, 1000)
+samples = [NeutronSample("D2O", "SLS18502-D2O.mint01", isotopes={"HW": {2: 1.0}}),
+           NeutronSample("H2O", "SLS18498-H2O.mint01")]
+
+project = Project.create("work/water", system, samples, settings={"rshmin": 0.7})
+project.equilibrate(iterations=100)              # scratch start + 99 on the reference potential
+project.refine(ereq=3.0, runs=2, iterations=100) # empirical potential on
+result = project.results()                       # result.fit("D2O"), result.gr_inter("OW", "HW")
+```
+
+With the three SANDALS samples, this is byte for byte the validated water
+calculation (`uv run pytest -m slow -k example_07`).
+
 | command | purpose |
 |---|---|
 | `uv run python examples/05_experimental_water.py --quick` | refine water against real data (about 45 s) |
 | `uv run python examples/06_experimental_SiO2.py --quick` | refine amorphous silica against real data (about 1 minute) |
-| `uv run pytest -n auto` | the test suite (222 tests, about 5 minutes on 4 cores) |
-| `uv run pytest -m "not slow"` | the quick tests (about 1 minute) |
+| `uv run pytest -n auto` | the whole test suite (365 tests, including the slow refinements on real data) |
+| `uv run pytest -m "not slow" -n 4` | the quick tests (222 tests, about 3 minutes on 4 cores) |
 | `uv run isort . && uv run black . && uv run ruff check . && uv run mypy` | format, lint, type-check |
 
 ## Examples on real experimental data
@@ -133,7 +161,7 @@ Add `--no-3d` to skip the 3D image, e.g. on a machine without OpenGL.
 
 ## More
 
-* [docs/user_guide.md](docs/user_guide.md): the workflow, overrides, perturbing the potential, tools, plotting and `epsr.vis`, parallel runs.
+* [docs/user_guide.md](docs/user_guide.md): setting up a system from Python, the workflow, overrides and settings, perturbing the potential, tools, plotting and `epsr.vis`, parallel runs.
 * [docs/api.md](docs/api.md): every public class and function.
 * [docs/architecture.md](docs/architecture.md) and [docs/testing.md](docs/testing.md): how the wrapper is built and verified.
-* [examples/](examples): `01` to `04` show a single run, a refinement loop, potential perturbation and the tools on the DMSO/water test case.
+* [examples/](examples): `01` to `04` show a single run, a refinement loop, potential perturbation and the tools on the DMSO/water test case; `07_water_from_scratch` sets up water entirely in Python, and `08_cu_btc` a crystal read from a PDB file.

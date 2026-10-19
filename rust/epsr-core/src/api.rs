@@ -11,6 +11,35 @@
 
 use crate::epsr::Epsr;
 
+/// Interaction parameters of one atom-type pair as the engine uses them: the
+/// reference potential mixed from the two types (`ato.rs`, Lorentz–Berthelot)
+/// and the per-pair terms of the `.pcof` entry the pair is mapped to.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PairParams {
+    /// ε_ij = √(ε_i ε_j) (kJ/mol, `ecor`).
+    pub epsilon: f32,
+    /// σ_ij = (σ_i + σ_j)/2 (Å, `dcor`).
+    pub sigma: f32,
+    /// Coulomb prefactor 1390·q_i·q_j (kJ mol⁻¹ Å, `qcor`).
+    pub charge_product: f32,
+    /// 0-based index of the `.pcof` entry of this pair (`irefpcof - 1`).
+    pub pcof_entry: usize,
+    /// Scale factor on the Coulomb term (`coulfac`).
+    pub coulfac: f32,
+    /// Range of the extra repulsive core (Å, `rminex`).
+    pub rminex: f32,
+    /// Amplitude of the extra repulsive core (`pcoefex`).
+    pub pcoefex: f32,
+    /// Coordination-number target of the core feedback (`coordex`).
+    pub coordex: f32,
+    /// Range and amplitude of the outer coordination constraint (`rmaxex`, `pcoefexmax`).
+    pub rmaxex: f32,
+    pub pcoefexmax: f32,
+    /// Additional Gaussian (or modified-Morse) terms as `(position, width, height)`
+    /// (`rpgauss`, `wpgauss`, `hpgauss`).
+    pub gaussians: Vec<(f32, f32, f32)>,
+}
+
 impl Epsr {
     /// Number of datasets (`ndata`).
     pub fn n_datasets(&self) -> usize {
@@ -101,6 +130,31 @@ impl Epsr {
         let irefp = self.st.pot.irefpcof[ip + 1] as usize;
         let n = self.st.pot.ncoeffp as usize;
         &self.st.pot.pcoefp.col(irefp)[..n]
+    }
+    /// Interaction parameters of every pair, in [`Epsr::pair_labels`] order.
+    pub fn pair_params(&self) -> Vec<PairParams> {
+        let m = &self.st.mol;
+        let p = &self.st.pot;
+        (1..=m.npairs as usize)
+            .map(|ip| {
+                let entry = p.irefpcof[ip] as usize;
+                PairParams {
+                    epsilon: m.ecor[ip],
+                    sigma: m.dcor[ip],
+                    charge_product: m.qcor[ip],
+                    pcof_entry: entry - 1,
+                    coulfac: p.coulfac[entry],
+                    rminex: p.rminex[entry],
+                    pcoefex: p.pcoefex[entry],
+                    coordex: p.coordex[entry],
+                    rmaxex: p.rmaxex[entry],
+                    pcoefexmax: p.pcoefexmax[entry],
+                    gaussians: (1..=p.npgauss[entry] as usize)
+                        .map(|ig| (p.rpgauss[(ig, entry)], p.wpgauss[(ig, entry)], p.hpgauss[(ig, entry)]))
+                        .collect(),
+                }
+            })
+            .collect()
     }
     /// Number of molecules and atoms.
     pub fn n_molecules(&self) -> usize {

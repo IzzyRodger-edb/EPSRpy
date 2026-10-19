@@ -2,6 +2,8 @@
 
 Needs the ``plot`` extra (matplotlib, scipy); the 3D viewer
 (:mod:`epsr.vis.viewer`) also needs the ``viewer`` extra (pyvista, imageio).
+``epsr.vis`` itself can always be imported: :func:`available` says whether the
+extra is installed, and any other name raises ``ImportError`` without it.
 
 EPSR writes its result files only after the last iteration of a run.  To follow
 a refinement, record it: :func:`run_recorded` / :func:`refine_recorded` replace
@@ -34,27 +36,49 @@ apart from this file and :mod:`epsr.vis.wrapper` the modules are identical.
 
 from __future__ import annotations
 
+from typing import Any
+
 try:
     from . import metrics, plots, style
 except ImportError as error:  # matplotlib or scipy missing
-    raise ImportError(
+    _missing = ImportError(
         "epsr.vis needs the 'plot' extra (matplotlib, scipy): "
         "uv sync --extra plot, or pip install 'epsr-py[plot]'"
-    ) from error
+    )
+    _missing.__cause__ = error
+    _MISSING_EXTRA: ImportError | None = _missing
+else:
+    _MISSING_EXTRA = None
+    from .outputs import (
+        OutputFolder,
+        load_reference_partials,
+        read_epsr_table,
+        read_erg,
+        read_isis_gr,
+    )
+    from .recorder import TrajectoryRecorder, record_run
+    from .report import make_report
+    from .trajectory import Trajectory
+    from .wrapper import refine_recorded, run_recorded
 
-from .outputs import (
-    OutputFolder,
-    load_reference_partials,
-    read_epsr_table,
-    read_erg,
-    read_isis_gr,
-)
-from .recorder import TrajectoryRecorder, record_run
-from .report import make_report
-from .trajectory import Trajectory
-from .wrapper import refine_recorded, run_recorded
+
+def available() -> bool:
+    """True when the ``plot`` extra (matplotlib, scipy) is installed and ``epsr.vis`` works.
+
+    ``epsr.vis`` can always be imported; without the extra, every name other
+    than :func:`available` raises ``ImportError`` when it is used.
+    """
+    return _MISSING_EXTRA is None
+
+
+def __getattr__(name: str) -> Any:
+    if _MISSING_EXTRA is not None and not name.startswith("__"):
+        raise _MISSING_EXTRA
+    raise AttributeError(f"module 'epsr.vis' has no attribute {name!r}")
+
 
 __all__ = [
+    "available",
     "OutputFolder",
     "Trajectory",
     "TrajectoryRecorder",

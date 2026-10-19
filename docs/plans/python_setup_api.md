@@ -1,6 +1,7 @@
 # Plan: a Python setup API for EPSR (investigation and design)
 
-**Status:** investigation and design only (2026-10-19). No code has been written or changed.
+**Status:** design agreed (2026-10-19); implementation in progress on `feature/python-setup-api`.
+See the *status* column of the checklist and *Implementation notes* below it.
 **For:** the agent that implements it. Read this whole document first. The *capability
 checklist* (after the decisions) is the definition of done and the scope boundary. §5 is
 the work plan, and §8 specifies the next example, Cu-BTC.
@@ -63,36 +64,189 @@ started without the user's agreement, even if it looks small.
 
 ### In scope: liquids and amorphous systems with neutron data (example 07)
 
-| id | capability | phase | shown in | acceptance |
-|---|---|---|---|---|
-| C1 | `AtomType`: ε, σ, charge, mass (default by element), `exchangeable` (D5), `coarse_grain`; label ≤ 3 chars; docstring states the §1.8 mixing rules | 2 | WF §1 | unit tests for validation; water `.ato` type table identical |
-| C2 | `Molecule`: named atoms + bonds/angles/rotations by name or index (D4); `vibtemp`/`angtemp`/`dihtemp`; `render_mol`; `from_geometry`, `from_xyz`, `from_mol`, `from_ato`, `Molecule.atom`; rejects dihedrals | 2 | WF §1 | `makemole` on the rendered water and silica `.mol` gives `.ato` files identical to `validation/` |
-| C3 | `System`: `add` order = type order, `density` in atoms/Å³ (D6), `temperature`, engine limits, `pair_parameters()` with a `terms` column | 2 | WF §2 | the water table of §4.3; limit errors |
-| C4 | `NeutronSample`: isotopes as `{mass_number: fraction}` (D7), checked against the isotope table; per-sample `exchangeable` override; per-dataset keywords; `.mint01` validation | 3 | WF §3 | rendered `.NWTS.dat` → `nwts` → `.NWTStot.wts` identical to `validation/water`; bad isotopes raise |
-| C5 | `Settings`: the keyword table binding; EPSR names (D1); unknown keys rejected; routing to `.inp`/`.pcof`/data blocks; `.inp` rendering | 0, 4 | WF §4 | table round trip; `.inp` after the scratch run identical to the validated one |
-| C6 | Typed setup tools: `makemole`, `mixato`, `randomise`, `fmole` (`.mol` handled), `nwts` from structured input | 1 | inside `create` | the water box rebuilt with these calls is identical to `validation/water` |
-| C7 | `seed=` (D3, §1.7): `set_rng_seed`; `None` = default | 0, 1 | WF §4 | the §1.7 table: default = seed 1, 42 reproducible and different, 0 rejected |
-| C8 | `Project.create`: steps 1–6 of §1.6, no EPSR run (D2), `epsr_project.json`, pending `.pcof` settings, rejects `ereq ≠ 0` | 5 | WF §4 | folder contents before the first run identical to the validated case at that step |
-| C9 | `equilibrate`: scratch start + (N − 1) on the first call (D2); `History` with both rows | 5 | WF §5 | `create` + `equilibrate(100)` identical to steps 7–8 of `validation/water` |
-| C10 | `refine(ereq=, runs=, iterations=, until=, callback=, snapshot_every=)` | 5 | WF §5 | full water schedule identical to `validation/water` |
-| C11 | `run`, `set`, `settings`, `status`; `run`/`refine` on a project that has never run raise an error | 5 | WF §4 | unit tests |
-| C12 | `record=True` and `project.trajectory()` (all recorded runs concatenated) | 5 | WF §5, §7 | the trajectory has scratch + 99 + 200 steps; recording does not change any file |
-| C13 | `project.results()`: no file modified (`.qdr` included) | 0 (optional Rust), 5 | WF §6 | folder hashes are unchanged before and after the call |
-| C14 | Datasets by sample name everywhere (`fit("D2O")`, settings `data` blocks, `Summary.r_factor_for`) | 5 | WF §6 | unit tests; integers still work |
-| C15 | `pair_params()` from the engine: ε_ij, σ_ij, q_i q_j, `coulfac`, active `.pcof` extras, `terms` | 0, 5 | WF §6 | water values; EPSR-test-ex1 shows the extras |
-| C16 | `epsr.analysis.first_peak`, `coordination_number` | 5 | WF §6 | O–O 2.79 Å, O···H ≈ 1.8 Å on the water result |
-| C17 | `epsr.vis.available()` | 5 | WF §5 | importable with and without the `plot` extra |
-| C18 | Example 07 rewritten to WF; docs (`user_guide`, `api`, READMEs) | 6 | WF | **new slow test:** `epsr_run/` byte-identical to the committed output |
-| C19 | Backwards compatibility: every existing public call keeps working (`overrides` as an alias of `settings`) | all | — | the existing `python/tests` pass unchanged |
+| id | capability | phase | shown in | acceptance | status |
+|---|---|---|---|---|---|
+| C1 | `AtomType`: ε, σ, charge, mass (default by element), `exchangeable` (D5), `coarse_grain`; label ≤ 3 chars; docstring states the §1.8 mixing rules | 2 | WF §1 | unit tests for validation; water `.ato` type table identical | **done** (Phase 2): `epsr.system.AtomType`; `tests/test_system.py` |
+| C2 | `Molecule`: named atoms + bonds/angles/rotations by name or index (D4); `vibtemp`/`angtemp`/`dihtemp`; `render_mol`; `from_geometry`, `from_xyz`, `from_mol`, `from_ato`, `Molecule.atom`; rejects dihedrals | 2 | WF §1 | `makemole` on the rendered water and silica `.mol` gives `.ato` files identical to `validation/` | **done** (Phase 2): water and silica `.mol` byte-identical to `validation/`, same templates from `makemole`; `from_mol` round trips; `from_ato` approximate (see notes) |
+| C3 | `System`: `add` order = type order, `density` in atoms/Å³ (D6), `temperature`, engine limits, `pair_parameters()` with a `terms` column | 2 | WF §2 | the water table of §4.3; limit errors | **done** (Phase 2): `System`, `pair_parameters()` → `PairTable` (printable, `to_dataframe()`) |
+| C4 | `NeutronSample`: isotopes as `{mass_number: fraction}` (D7), checked against the isotope table; per-sample `exchangeable` override; per-dataset keywords; `.mint01` validation | 3 | WF §3 | rendered `.NWTS.dat` → `nwts` → `.NWTStot.wts` identical to `validation/water`; bad isotopes raise | **done** (Phase 3): `epsr.samples.NeutronSample`, `epsr.io.read_mint01`; water and silica weights identical to `validation/` (`tests/test_samples.py`) |
+| C5 | `Settings`: the keyword table binding; EPSR names (D1); unknown keys rejected; routing to `.inp`/`.pcof`/data blocks; `.inp` rendering | 0, 4 | WF §4 | table round trip; `.inp` after the scratch run identical to the validated one | **done** (Phases 0, 4): `epsr.keywords()`, `epsr.Settings`; scratch run from the rendered `.inp` identical to the validated steps, every file (`tests/test_settings.py`) |
+| C6 | Typed setup tools: `makemole`, `mixato`, `randomise`, `fmole` (`.mol` handled), `nwts` from structured input | 1 | inside `create` | the water box rebuilt with these calls is identical to `validation/water` | **done** (Phase 1): `tools.makemole/mixato/randomise/fmole/nwts(components=)`; water box and weights identical to the validated steps (`tests/test_setup_tools.py`) |
+| C7 | `seed=` (D3, §1.7): `set_rng_seed`; `None` = default | 0, 1 | WF §4 | the §1.7 table: default = seed 1, 42 reproducible and different, 0 rejected | **done** (Phases 0, 1, 5): `set_rng_seed`, `tools.randomise(seed=)`, `Project.create(seed=)`; §1.7 table reproduced |
+| C8 | `Project.create`: steps 1–6 of §1.6, no EPSR run (D2), `epsr_project.json`, pending `.pcof` settings, rejects `ereq ≠ 0` | 5 | WF §4 | folder contents before the first run identical to the validated case at that step | **done** (Phase 5): water and silica folders identical to the validated steps before the first run (`tests/test_project_setup.py`) |
+| C9 | `equilibrate`: scratch start + (N − 1) on the first call (D2); `History` with both rows | 5 | WF §5 | `create` + `equilibrate(100)` identical to steps 7–8 of `validation/water` | **done** (Phase 5): short schedule identical to the steps; full schedule in the slow test (`tests/test_project_setup.py`) |
+| C10 | `refine(ereq=, runs=, iterations=, until=, callback=, snapshot_every=)` | 5 | WF §5 | full water schedule identical to `validation/water` | **done** (Phase 5): full water schedule identical to the committed run (slow test in `tests/test_project_setup.py`) |
+| C11 | `run`, `set`, `settings`, `status`; `run`/`refine` on a project that has never run raise an error | 5 | WF §4 | unit tests | **done** (Phase 5): `tests/test_project_setup.py` |
+| C12 | `record=True` and `project.trajectory()` (all recorded runs concatenated) | 5 | WF §5, §7 | the trajectory has scratch + 99 + 200 steps; recording does not change any file | **done** (Phase 5): recorded runs give identical files; 1 + 99 + 200 steps (`tests/test_project_setup.py`) |
+| C13 | `project.results()`: no file modified (`.qdr` included) | 0 (optional Rust), 5 | WF §6 | folder hashes are unchanged before and after the call | **done** (Phase 5): `.qdr` saved and restored; folder hashes unchanged (`tests/test_project_setup.py`) |
+| C14 | Datasets by sample name everywhere (`fit("D2O")`, settings `data` blocks, `Summary.r_factor_for`) | 5 | WF §6 | unit tests; integers still work | **done** (Phase 5): `fit`, `data_*`, `get_parameter`, settings/overrides `data` blocks, `Summary.r_factor_for` (`tests/test_project_setup.py`) |
+| C15 | `pair_params()` from the engine: ε_ij, σ_ij, q_i q_j, `coulfac`, active `.pcof` extras, `terms` | 0, 5 | WF §6 | water values; EPSR-test-ex1 shows the extras | **done** (Phases 0, 5): `result.potential.pair_params()` → `PairTable` with `coulfac` and `.pcof` extras (`tests/test_project_setup.py`) |
+| C16 | `epsr.analysis.first_peak`, `coordination_number` | 5 | WF §6 | O–O 2.79 Å, O···H ≈ 1.8 Å on the water result | **done** (Phase 5): `epsr.analysis` (numpy only); O–O 2.79 Å, O···H ≈ 1.8 Å on the full run (`tests/test_project_setup.py`) |
+| C17 | `epsr.vis.available()` | 5 | WF §5 | importable with and without the `plot` extra | **done** (Phase 5): `epsr.vis` always importable (user decision, see notes) (`tests/test_project_setup.py`) |
+| C18 | Example 07 rewritten to WF; docs (`user_guide`, `api`, READMEs) | 6 | WF | **new slow test:** `epsr_run/` byte-identical to the committed output | **done** (Phase 6): example 07 rewritten to the wireframe; `tests/test_example_07.py` (slow) byte-identical to the committed `epsr_run/`; user guide §2, api.md, READMEs, testing.md |
+| C19 | Backwards compatibility: every existing public call keeps working (`overrides` as an alias of `settings`) | all | — | the existing `python/tests` pass unchanged | held after every phase: the 82 original fast tests pass unchanged |
 
 ### In scope next: crystalline systems from a PDB file (example 08, Cu-BTC, §8)
 
-| id | capability | phase | acceptance |
-|---|---|---|---|
-| C20 | `Framework.from_pdb`: a structure from a PDB file through `readpdb` (bond detection by vdW factor, optional `DIH` groups), with the `vanderWaalsRadii.txt` shipped by the package and a check of the label order | 7a | `.ato` after `readpdb` identical to the validated run |
-| C21 | Force field and Monte Carlo parameters applied to an existing configuration, through `changeato` (per-type ε/σ/charge/mass; `temp`, `tol`, step sizes), using EPSR's `changeato` keyword names (D1) | 7a | `.ato` after `changeato` identical to the validated run |
-| C22 | Bragg settings as `Settings` with tuple values (`qwidthqmax`, `hklqmin`, `mplicities`); results readers for `.bragg` and `.inten` (`epsr.io`) | 7a | 80 726 reflections at 940 unique Q, as in `validation/cu-btc/README.md` |
-| C23 | Example 08 (Cu-BTC) in the new syntax | 7a | every file byte-identical to `validation/cu-btc/fortran_reference.tar.gz` after each EPSR run |
+| id | capability | phase | acceptance | status |
+|---|---|---|---|---|
+| C20 | `Framework.from_pdb`: a structure from a PDB file through `readpdb` (bond detection by vdW factor, optional `DIH` groups), with the `vanderWaalsRadii.txt` shipped by the package and a check of the label order | 7a | `.ato` after `readpdb` identical to the validated run | **done** (Phase 7a): `Framework.from_pdb`, `tools.readpdb`, package `vanderWaalsRadii.txt`; `.ato` after `readpdb` identical (`tests/test_framework.py`) |
+| C21 | Force field and Monte Carlo parameters applied to an existing configuration, through `changeato` (per-type ε/σ/charge/mass; `temp`, `tol`, step sizes), using EPSR's `changeato` keyword names (D1) | 7a | `.ato` after `changeato` identical to the validated run | **done** (Phase 7a): `System.monte_carlo`, `tools.changeato(_commands)`; commands equal `changeato.stdin`, `.ato` identical (`tests/test_framework.py`) |
+| C22 | Bragg settings as `Settings` with tuple values (`qwidthqmax`, `hklqmin`, `mplicities`); results readers for `.bragg` and `.inten` (`epsr.io`) | 7a | 80 726 reflections at 940 unique Q, as in `validation/cu-btc/README.md` | **done** (Phase 7a): tuple settings; `epsr.io.read_bragg`, `read_inten`; 80 726 reflections at 940 unique Q (`tests/test_framework.py`) |
+| C23 | Example 08 (Cu-BTC) in the new syntax | 7a | every file byte-identical to `validation/cu-btc/fortran_reference.tar.gz` after each EPSR run | **done, with one open point** (Phase 7a): example 08; byte-identical to the validated steps (wrapper, CLI) and to the Fortran built on this machine after every run; the archive, made on another machine, agrees only to the last digits; see `docs/plans/cu_btc_fortran_discrepancy.md` |
+
+### Implementation notes (settled while implementing)
+
+- **Phase 0 (2026-10-19).**
+  - **Keyword routing**, read from the engine's writers (`save_inp_file`, `save_pcof_file`
+    in `symbols.rs`), with 1-based table positions: `.inp` header = 1–2, 10–46 and 65
+    (40 keywords); `.pcof` header = 3–9 and 47–64 (25 keywords, `ereq`…`sfreq`,
+    `roverlap`…`refpotfac`); `data n` block = 66–73 (8 keywords). `_core.epsr_keywords()`
+    returns this as the `file` field (`"inp"`, `"pcof"`, `"data"`). Tested against the
+    validated water `.inp` and a `.pcof` the engine wrote.
+  - **`set_rng_seed`** reads the box with `minitc` and writes it with `moloutc` (as
+    `randomise` does). On the mixato water box this rewrite is byte-identical except for
+    the RNG record, and the §1.7 table is reproduced exactly.
+  - **Isotope table units:** the Sears values are in 10⁻¹² cm (H natural −0.3739, i.e.
+    −3.739 fm), not fm as §4.3 says.
+  - **C13, read-only results:** the `.qdr` is written by `lsparabola1` inside
+    `Epsr::setup` whenever `iinit != 1`. Skipping it would need a new engine flag, so the
+    Rust side stays unchanged and `project.results()` will save and restore the `.qdr`
+    in Python (Phase 5).
+  - `pair_params()` is bound on `_core.Simulation` with Fortran names (`ecor`, `dcor`,
+    `qcor`, `coulfac`, `rminex`, `pcoefex`, `coordex`, `rmaxex`, `pcoefexmax`,
+    `gaussians`, `pcof_entry`); the readable Python layer comes in Phase 5.
+- **Phase 1 (2026-10-19).**
+  - The typed wrappers check that their output file was (re)written, because
+    `makemole`, `mixato` and others report failures on their log and return normally
+    (as the Fortran does). The error points to `verbose=True`.
+  - `tools.fmole` moves every `*.mol` of the folder into a temporary subfolder for the
+    run and puts it back (pitfall 6.2). Whether `Project.create` keeps the generated
+    `.mol` in the folder is decided in Phase 5.
+  - `tools.nwts(folder, "<sample>.NWTS.dat", box=, components=)` writes the input first.
+    Components use the `nwts` keyword names (D1); `abundances` may be
+    `{mass_number: fraction}`, rendered in the given order with whole numbers as
+    integers (`2 1`, `1 0.5 2 0.5`), which is the text `nwts` keeps. Validation is in
+    `tools.abundances_text` (≤ 5 isotopes, sum 1 ± 1e-6, mass numbers in the engine's
+    table for the element). The old `nwts(folder, dat_file)` call is unchanged, apart
+    from now returning the path of the `tot.wts` file.
+- **Phase 2 (2026-10-19).**
+  - **Coarse-graining defaults (wireframe note 3):** no special default for O.
+    `AtomType(coarse_grain=...)` defaults to makemole's own values (nsph 1, rmin 0,
+    rmax 0.5·σ, cg 1); example 07 passes `rmax=1.55` for OW explicitly. Values equal to
+    the defaults are dropped, so equal types compare equal.
+  - **Masses** default to EPSR's `chatwt` (`chemical_symbols.inc`), kept as Python data
+    in `epsr/_elements.py`.
+  - **`angles=None`** (not `()`) is the default of `Molecule`: makemole needs an angle
+    for every two atoms bonded to a common atom (and prompts on stdin otherwise), so
+    `None` generates exactly those from the geometry. An explicit list must contain them
+    all. `bond_lengths=` / `angle_values=` set targets that differ from the geometry
+    (the EPSR-test water template has 0.951 Å coordinates and 0.976 Å bonds).
+  - **`Molecule.atom`** is both the one-atom constructor `Molecule.atom(atom_type)` (C2)
+    and, on an instance, the atom lookup `molecule.atom("H1")` (§4.3); a small
+    descriptor dispatches on class versus instance.
+  - **`render_mol(temperature)`** takes the system temperature (the `.mol`
+    `temperature` line).
+  - **`.mol` layout:** atom lines are a list-directed record; a fixed-form real is a
+    12-column field plus 4 blanks, an E-form real a 16-column field (DMSO has
+    `5.93999997E-02`). Mellor's fixed widths only covered the first case.
+  - makemole numbers atom types by first appearance among the atoms (`ftype`), which
+    is `System.atom_types`; the order of `potential` lines is cosmetic. `from_mol`
+    keeps no potential order, so DMSO.mol re-renders with O before H, and makemole
+    gives the identical template.
+  - **`from_ato` is approximate:** the `.ato` keeps restraint distances to three
+    significant digits (`-.154E+01`), so angles rebuilt from 1-3 distances are off by
+    up to ~0.6° (water 104.5° → 104.17°). Documented; prefer `from_mol`.
+  - **The wireframe's "equivalent explicit form" is not byte-equivalent:** its
+    coordinates (−0.28754, 0.93268) are rounded to five digits, which moves H2 and gives
+    a measured angle of 107.13424°. `from_geometry` reproduces example 07 exactly; the
+    rewritten example must not claim that the explicit form gives the same box.
+  - `System(box=...)` raises `EpsrUnsupportedError` (cubic only).
+- **Phase 3 (2026-10-19).**
+  - **When isotopes are checked:** on creation, a `NeutronSample` only knows type
+    labels, not elements, so it checks the structure (int mass numbers, ≤ 5 isotopes,
+    fractions in [0, 1] summing to 1). The element-specific check against the Sears
+    table (and that every label is a type of the system) is `sample.check(system)`,
+    which `nwts_components`/`render_nwts` and `Project.create` call before any EPSR
+    program runs.
+  - `exchangeable=[...]` on a sample *replaces* the types' own flags for that sample;
+    `exchangeable=[]` switches exchange off.
+  - `read_mint01` lives in `epsr.io` (refuses non-numeric rows, < 10 or > 5000 rows,
+    all-zero data). The "data beyond `nq × qstep`" check is a note
+    (`sample.notes(q_max)`), not an error or warning: every validated dataset extends
+    to ~50 Å⁻¹ beyond the default 30 Å⁻¹, and EPSR simply ignores the rest.
+  - `tools.render_keyword_file` / `tools.render_nwts` give the text without writing a
+    file; `write_keyword_file` and `nwts(components=)` use them.
+- **Phase 4 (2026-10-19).**
+  - **The `.inp` is complete**, every table keyword in table order (managed ones set
+    by the API, the rest from the settings or the table defaults), in EPSR's layout
+    (no blank line before `q`). After the scratch run the whole folder is identical
+    to the validated steps' folder (only the steps' `mixato.stdin` differs), so the
+    table defaults are safe.
+  - **Managed keywords** are refused by `Settings` with the reason:
+    `fnameato`, `fnamepcof`, `ndata`, `datafile`, `wtsfile`, `rho`, `ireset`, `iinit`,
+    `nsumt` and `niter` (the last is `iterations=` of `run`/`equilibrate`/`refine`).
+  - **Values:** reals are written in their shortest exact form, always as reals
+    (`ereq=3` → `3.0`, the text `steps.txt` sets), integers as integers; tuples and
+    multi-word strings are joined (`qwidthqmax=(0.2, 5.0)`).
+  - **Dataset keywords, order of precedence:** settings for that dataset
+    (`settings={"data": {"D2O": {...}}}`) > the `NeutronSample`'s own value > settings
+    given globally (`settings={"rshmin": 0.7}`) > the table default. For this,
+    `NeutronSample`'s `tweak`, `efilereq`, `szeros` and `porodadd` now default to `None`
+    (resolved values are unchanged).
+  - Mellor's `auto_rshmin` is `epsr.settings.suggest_rshmin(system)`, opt-in only.
+- **Phase 5 (2026-10-19).**
+  - **`epsr.vis` is always importable (decided by the user, 2026-10-19).** C17's
+    `epsr.vis.available()` cannot coexist with `from epsr import vis` raising
+    `ImportError` without the `plot` extra. Now `epsr.vis` imports always;
+    `available()` says whether the extra is there, and any other name raises the
+    usual `ImportError` when used. Examples 05 and 06 use `vis.available()` instead of
+    the `ImportError` fallback. `epsr.vis` is imported lazily on first access of
+    `epsr.vis` (it loads matplotlib).
+  - **The `.mol` files stay in the folder** (makemole's rewrite of the generated text,
+    for inspection); `tools.fmole` moves them aside for its run. A created folder is
+    the validated folder plus `epsr_project.json` and, for molecular systems,
+    `<molecule>.mol` (the silica steps keep their `.mol` files too).
+  - `fmole` is skipped when every molecule is a single atom (as in the silica steps)
+    or with `relax_iterations=0`. With `randomise=False` a seed is written into the
+    box before the scratch run (§1.7).
+  - **Pending `.pcof` settings** of `create` (and of `set()` before the first run) are
+    kept in `epsr_project.json` and passed as overrides to the scratch run; `ereq` is
+    never pending (create refuses a non-zero one).
+  - **`equilibrate` on a project that has run** adds `ereq 0.0` when the EP is on.
+  - **`set()` edits the files** like `validation/set_keyword.py` (keyword section, or
+    the `data n` block), keeping the description; `.pcof` keywords before the first
+    run become pending. `project.settings` returns the files' current text values.
+  - **`status().iterations`** counts `.erg` lines: EPSR leaves `nsumt` at −1.
+  - **`results()`**: reading a folder rewrites only `.qdr`, which is saved and put
+    back. Reading runs no iteration, so the engine's summary is empty; `results()`
+    hands over the summary of the last run made through that `Project` object
+    (`project.last_summary`), which `result.summary.r_factor_for(...)` uses.
+  - **Datasets by name:** names from `epsr_project.json`, else the data-file stems.
+    `settings=` (validated, datasets by name or **0-based** index) and `overrides=`
+    (unchecked, as before, datasets by **1-based** number or name) coexist on
+    `Simulation` and `Project.simulation`; `overrides` is not a strict alias because
+    its integer numbering must stay 1-based for compatibility.
+  - **`record=`** is `True` or an `epsr.vis.TrajectoryRecorder`; with `True` the
+    project's recorder uses the `epsr.vis` case whose atom types match the system
+    (OW/HW → `water`), so example 07's figures keep their styling. The trajectory is
+    in memory (`project.trajectory()`), across all recorded calls.
+  - `epsr.refine` gained a keyword-only `runner=` hook (default `Simulation.run`), used
+    by `Project.refine(record=True)` so that `until`, `callback` and `snapshot_every`
+    work with recording.
+  - `epsr.analysis` is plain numpy (not re-exported from `epsr.vis.metrics`, which
+    needs the `plot` extra). State errors raise `epsr.ProjectStateError`
+    (a `RuntimeError`).
+- **Phase 6 (2026-10-19).**
+  - Example 07 follows the wireframe. Differences: the comment on the atom-by-atom
+    form no longer claims it gives the same box (see Phase 2); the R² per dataset and
+    the hydrogen-bond count of the old summary are kept; without the `plot` extra the
+    script exits with status 0 instead of `SystemExit("...")` (status 1).
+  - The committed `output/` (figures, trajectory, `summary.txt`, `epsr_run/`) was not
+    regenerated: `epsr_run/` is the oracle. A fresh run also writes `Water.mol` and
+    `epsr_project.json` into `epsr_run/`; the test allows exactly these two extras and
+    excepts `.qdr`, as documented.
+  - Optional port of example 06 to the new API: not done.
 
 ### Out of scope until agreed with the user
 
@@ -1022,6 +1176,47 @@ section:
   nothing random happens before it.
 - **The PDB file** is an input, like a `.mint01`. Converting Dissolve to PDB
   (`make_pdb.py`) stays a data-preparation script and is out of scope.
+
+**Decisions (Phase 7a, 2026-10-19).**
+- **`Framework` is a separate class** (`epsr.system.Framework.from_pdb`), held by
+  `System(name, temperature, structure=framework)`. `density` is refused with a
+  structure (the cell sets it) and `System.add` is refused (molecules in a framework
+  are out of scope). The cell must be cubic (`EpsrUnsupportedError` otherwise).
+  `from_pdb` checks the label order (first appearance) and that the element `readpdb`
+  reads from columns 13-14 is each type's element (else `readpdb` silently makes a `Q`
+  dummy atom). `coarse_grain` on framework types is refused (not applied by
+  `changeato` here).
+- **`system.monte_carlo(...)`**, with `changeato`'s names (D1): `tol`, `stepmi`,
+  `stepri`, `stepr`, `stepm`, `vibtemp`, `angtemp`, `dihtemp`, `ecore`, `dcore`. For a
+  framework they are part of the `changeato` run (after `temp` and before the
+  per-type values, the order of `changeato.stdin`); for molecules a `changeato` run
+  with only these follows `mixato` when any is set (none by default, so example 07
+  is unchanged).
+- **Pipeline:** the PDB is copied as `<system>.pdb` with the packaged
+  `vanderWaalsRadii.txt` (a verbatim copy of `EPSR-test/`'s, as §8.4 asks), then
+  `readpdb` → `changeato` → (seed) → `nwts` → `.inp`. `Project.create`'s
+  `randomise` and `relax_iterations` now default to `None`: true / 100 for molecules,
+  false / 0 for a framework. The seed is written into the box after `changeato`,
+  before the scratch run.
+- **`equilibrate(callback=)`** was added (as on `refine`), called after the scratch
+  run and after the main run, so the folder can be checked after each EPSR run.
+- **Byte-identity with the Fortran archive (open point for the user).** On this
+  machine the Rust engine agrees with `fortran_reference.tar.gz` only to the last
+  digits: `.o01` from the scratch run on (the `powf` rounding of `python/docs/testing.md`),
+  then `.erg`, `.inpa`, `fort.35`, and after step 9 one `.out` value that differs by
+  one unit in its last printed digit, which the comparison counts as different. The
+  existing `test_cu_btc.py` fails in the same way here, and the setup API's folder
+  is byte-identical to the `epsr-rs` CLI's after the full schedule, so the
+  difference is the engine's on this platform, not the Python layer's.
+  `tests/test_framework.py` requires byte-identity with the validated steps run by
+  the wrapper after every EPSR run, and the Fortran comparison as `test_cu_btc.py`
+  does. **Diagnosed 2026-10-20:** the Fortran built on this machine
+  (`~/epsr-work/fortran-build`) gives files byte-identical to the Rust engine after
+  every EPSR run, and differs from the archive exactly as Rust does; the archive was
+  made on another machine. Briefing for the fix:
+  [cu_btc_fortran_discrepancy.md](cu_btc_fortran_discrepancy.md).
+- The wireframe's `"qmin": 0.05` is written `(0.05, 0.0)` in example 08, the values of
+  the validated input.
 
 ### 8.3 Gaps this example fills
 

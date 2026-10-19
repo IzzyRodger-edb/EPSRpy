@@ -11,6 +11,7 @@ on a copy of your folder (:meth:`epsr.Project.from_template`).
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, fields
 from os import PathLike
@@ -34,7 +35,9 @@ __all__ = [
     "Overrides",
     "PairKey",
     "render_overrides",
+    "dataset_names",
     "find_inp",
+    "PROJECT_FILE",
 ]
 
 Float32Array = npt.NDArray[np.float32]
@@ -66,9 +69,13 @@ class Summary:
     gr_roughness: float  # sentb: roughness of the averaged g(r)
     chisq: float  # chisq
     fortran: Mapping[str, Any] = field(repr=False, compare=False, default_factory=dict)
+    #: Names of the datasets, in the order of ``r_factor_per_dataset`` (may be empty).
+    dataset_names: tuple[str, ...] = field(repr=False, compare=False, default=())
 
     @classmethod
-    def from_fortran(cls, fortran_values: Mapping[str, Any]) -> Summary:
+    def from_fortran(
+        cls, fortran_values: Mapping[str, Any], dataset_names: Sequence[str] = ()
+    ) -> Summary:
         """Build from the engine's summary dict (Fortran variable names)."""
         return cls(
             iteration=int(fortran_values["iter"]),
@@ -87,13 +94,25 @@ class Summary:
             gr_roughness=float(fortran_values["sentb"]),
             chisq=float(fortran_values["chisq"]),
             fortran=dict(fortran_values),
+            dataset_names=tuple(dataset_names),
         )
 
     def as_dict(self) -> dict[str, Any]:
         """The descriptive fields as a plain dict (without :attr:`fortran`)."""
         values = asdict(self)
         values.pop("fortran")
+        values.pop("dataset_names")
         return values
+
+    def r_factor_for(self, dataset: int | str) -> float:
+        """The R-factor of one dataset, by 0-based index or by name (``"D2O"``)."""
+        if isinstance(dataset, str):
+            if dataset not in self.dataset_names:
+                raise KeyError(
+                    f"no dataset named {dataset!r}; datasets are {list(self.dataset_names)}"
+                )
+            dataset = self.dataset_names.index(dataset)
+        return self.r_factor_per_dataset[dataset]
 
 
 def _from_fortran_dict(cls: Any, fortran_values: Mapping[str, Any]) -> Any:
@@ -205,7 +224,9 @@ def _format_value(value: Any) -> str:
     return str(value)
 
 
-def render_overrides(overrides: Overrides) -> list[str]:
+def render_overrides(
+    overrides: Overrides, *, dataset_names: Sequence[str] | None = None
+) -> list[str]:
     """Turn overrides into ``.EPSR.inp`` lines for ``Epsr::setup_with_lines``.
 
     * A sequence of strings is passed through unchanged
@@ -216,7 +237,9 @@ def render_overrides(overrides: Overrides) -> list[str]:
     * The key ``"data"`` takes a mapping from **EPSR dataset numbers (1-based,
       as in the input file)** to per-dataset keywords:
       ``{"data": {2: {"tweak": 1.05}}}`` gives ``["data 2", "tweak 1.05"]``.
-      Dataset blocks are emitted after all global keywords.
+      A dataset may also be given by name (``{"data": {"HDO": {...}}}``) when
+      ``dataset_names`` lists the names in dataset order. Dataset blocks are
+      emitted after all global keywords.
 
     Keywords are those of the ``.EPSR.inp`` file and the ``.pcof`` header
     (``ereq``, ``rminpt``, ...). Overrides are written back to those files at
@@ -249,15 +272,66 @@ def render_overrides(overrides: Overrides) -> list[str]:
             raise TypeError(
                 "override 'data' must map dataset numbers (1-based) to keyword mappings"
             )
-        for dataset_number in sorted(dataset_overrides):
-            if not isinstance(dataset_number, int) or dataset_number < 1:
+        numbered: dict[int, dict[str, Any]] = {}
+        for dataset_key, values in dataset_overrides.items():
+            if isinstance(dataset_key, str) and dataset_names is not None:
+                if dataset_key not in dataset_names:
+                    raise KeyError(
+                        f"no dataset named {dataset_key!r}; datasets are {list(dataset_names)}"
+                    )
+                dataset_key = list(dataset_names).index(dataset_key) + 1
+            if not isinstance(dataset_key, int) or dataset_key < 1:
                 raise ValueError(
-                    f"dataset numbers in overrides are 1-based integers, got {dataset_number!r}"
+                    "datasets in overrides are 1-based numbers or names, "
+                    f"got {dataset_key!r}"
                 )
+            numbered.setdefault(dataset_key, {}).update(values)
+        for dataset_number in sorted(numbered):
             lines.append(f"data {dataset_number}")
-            for keyword, value in dataset_overrides[dataset_number].items():
+            for keyword, value in numbered[dataset_number].items():
                 lines.append(f"{keyword} {_format_value(value)}")
     return lines
+
+
+#: The file in a simulation folder that records how :meth:`epsr.Project.create` built it.
+PROJECT_FILE = "epsr_project.json"
+
+
+def dataset_names(folder: str | PathLike[str], inp_name: str) -> list[str]:
+    """The names of a folder's datasets, in ``data n`` order.
+
+    The sample names recorded by :meth:`epsr.Project.create`
+    (``epsr_project.json``) when there is one, otherwise the data-file names
+    without their extension.
+    """
+    from .io import read_keyword_file
+
+    folder = Path(folder)
+    stems = [
+        Path(block["datafile"].split()[0]).stem
+        for block in read_keyword_file(folder / inp_name).blocks
+        if block.get("datafile")
+    ]
+    project_file = folder / PROJECT_FILE
+    if project_file.is_file():
+        recorded = [
+            sample["name"]
+            for sample in json.loads(project_file.read_text(encoding="utf-8"))[
+                "samples"
+            ]
+        ]
+        if len(recorded) == len(stems):
+            return recorded
+    return stems
+
+
+def _uses_dataset_names(overrides: Overrides) -> bool:
+    """True when overrides select a dataset by name (which needs the folder's names)."""
+    if not isinstance(overrides, Mapping) or not isinstance(
+        overrides.get("data"), Mapping
+    ):
+        return False
+    return any(isinstance(key, str) for key in overrides["data"])
 
 
 def find_inp(folder: str | PathLike[str]) -> str:
@@ -285,6 +359,11 @@ class Simulation:
     overrides:
         Parameter changes applied after reading the input file, see
         :func:`render_overrides`. They are saved back to the input files.
+    settings:
+        The same, checked against EPSR's keyword table: a mapping or
+        :class:`epsr.Settings` with EPSR keyword names, datasets in ``data``
+        given by name or **0-based** index. Give ``settings`` or ``overrides``,
+        not both.
     verbose:
         Print the engine's progress messages. They are written by Rust directly
         to the process's standard output, not through ``sys.stdout``.
@@ -308,11 +387,29 @@ class Simulation:
         inp_name: str | None = None,
         *,
         overrides: Overrides = None,
+        settings: Mapping[str, Any] | None = None,
         verbose: bool = False,
     ) -> None:
         self.folder = Path(folder)
         self.inp_name = inp_name if inp_name is not None else find_inp(self.folder)
-        self.overrides = render_overrides(overrides)
+        if settings is not None and overrides is not None:
+            raise TypeError("give settings= or overrides=, not both")
+        from .settings import Settings
+
+        if isinstance(overrides, Settings):  # its dataset indices are 0-based
+            settings, overrides = overrides, None
+        if settings is not None or _uses_dataset_names(overrides):
+            self._dataset_names = dataset_names(self.folder, self.inp_name)
+        else:
+            self._dataset_names = []
+        if settings is not None:
+            self.overrides = Settings(settings).override_lines(self._dataset_names)
+        else:
+            self.overrides = render_overrides(
+                overrides, dataset_names=self._dataset_names
+            )
+        #: Summary shown before the first iteration (set by :meth:`epsr.Project.results`).
+        self._results_summary: Summary | None = None
         #: The Rust engine object (``epsr._core.Simulation``), with Fortran names.
         self._engine = _core.Simulation(
             str(self.folder), self.inp_name, self.overrides, verbose
@@ -375,8 +472,14 @@ class Simulation:
 
     @property
     def summary(self) -> Summary:
-        """Results of the most recent iteration."""
-        return Summary.from_fortran(self._engine.summary)
+        """Results of the most recent iteration.
+
+        For a :meth:`epsr.Project.results` object that has not iterated: the
+        summary of the project's last run.
+        """
+        if self._results_summary is not None and self.last_iteration == 0:
+            return self._results_summary
+        return Summary.from_fortran(self._engine.summary, self.dataset_names)
 
     @property
     def control(self) -> Control:
@@ -389,6 +492,16 @@ class Simulation:
     @property
     def n_datasets(self) -> int:
         return self._engine.n_datasets
+
+    @property
+    def dataset_names(self) -> list[str]:
+        """Dataset names in ``data n`` order: the sample names of the project
+        (``epsr_project.json``), else the data-file names without extension."""
+        if len(self._dataset_names) != self.n_datasets:
+            self._dataset_names = dataset_names(self.folder, self.inp_name)
+            if len(self._dataset_names) != self.n_datasets:
+                self._dataset_names = [dataset.name for dataset in self.datasets]
+        return list(self._dataset_names)
 
     @property
     def n_pairs(self) -> int:
@@ -450,8 +563,10 @@ class Simulation:
         """``(n_atoms, 3)`` atom positions in Å."""
         return self._engine.atom_positions()
 
-    def get_parameter(self, name: str, dataset: int | None = None) -> str | None:
-        """Current value of an input keyword; ``dataset`` is a 0-based index."""
+    def get_parameter(self, name: str, dataset: int | str | None = None) -> str | None:
+        """Current value of an input keyword; ``dataset`` is a 0-based index or a name."""
+        if dataset is not None:
+            dataset = self._dataset_index(dataset)
         return self._engine.get_parameter(name, dataset)
 
     def pair_index(
@@ -546,37 +661,42 @@ class Simulation:
         return self._engine.current_sq()
 
     # ---------------------------------------------------------------- data
-    def _dataset_index(self, dataset: int) -> int:
-        """Check a 0-based dataset index (negative values count from the end)."""
+    def _dataset_index(self, dataset: int | str) -> int:
+        """A dataset given by name, or a checked 0-based index (negative counts from the end)."""
+        if isinstance(dataset, str):
+            names = self.dataset_names
+            if dataset not in names:
+                raise KeyError(f"no dataset named {dataset!r}; datasets are {names}")
+            return names.index(dataset)
         if not -self.n_datasets <= dataset < self.n_datasets:
             raise IndexError(
                 f"dataset index {dataset} out of range (n_datasets = {self.n_datasets})"
             )
         return dataset % self.n_datasets
 
-    def data_fq(self, dataset: int) -> Float32Array:
-        """Measured F(Q) of a dataset (0-based) on the Q grid; zero outside the data."""
+    def data_fq(self, dataset: int | str) -> Float32Array:
+        """Measured F(Q) of a dataset (0-based index or name) on the Q grid; zero outside the data."""
         return self._engine.data_fq(self._dataset_index(dataset))
 
-    def data_errors(self, dataset: int) -> Float32Array:
+    def data_errors(self, dataset: int | str) -> Float32Array:
         """Errors of the measured F(Q) of a dataset on the Q grid."""
         return self._engine.data_errors(self._dataset_index(dataset))
 
-    def simulated_fq(self, dataset: int) -> Float32Array:
+    def simulated_fq(self, dataset: int | str) -> Float32Array:
         """Simulated total F(Q) of a dataset."""
         return self._engine.simulated_fq(self._dataset_index(dataset))
 
-    def data_q_range(self, dataset: int) -> tuple[int, int]:
+    def data_q_range(self, dataset: int | str) -> tuple[int, int]:
         """First and last Q index (0-based, inclusive) fitted for a dataset."""
         return self._engine.data_q_range(self._dataset_index(dataset))
 
-    def fit(self, dataset: int) -> Fit:
-        """Data, errors and simulation of a dataset over its fitted Q range."""
+    def fit(self, dataset: int | str) -> Fit:
+        """Data, errors and simulation of a dataset (index or name) over its fitted Q range."""
         dataset = self._dataset_index(dataset)
         first_index, last_index = self.data_q_range(dataset)
         fitted_range = slice(first_index, last_index + 1)
         return Fit(
-            name=self.datasets[dataset].name,
+            name=self.dataset_names[dataset],
             q=self.q[fitted_range],
             data=self.data_fq(dataset)[fitted_range],
             errors=self.data_errors(dataset)[fitted_range],

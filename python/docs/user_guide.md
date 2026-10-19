@@ -26,7 +26,136 @@ A simulation folder holds:
 | `*.wts`, data files | neutron or X-ray weights and the measured data |
 | `<name>.EPSR.*` | results written by each run (`.g01` partial g(r), `.u01` simulated F(Q), `.erg` history, ...) |
 
-## 2. A first run
+## 2. Setting up a system from Python
+
+A new simulation needs a molecule template, a box, the neutron weights of every
+sample and a run-control file. `epsr.Project.create` builds all of them from Python
+objects, by writing the files EPSR's own setup programs read (`makemole`, `mixato`,
+`randomise`, `fmole`, `nwts`) and running those programs, so the folder is exactly
+what EPSR would build from the same numbers. You never write an EPSR input file.
+The complete example is `examples/07_water_from_scratch/water_from_scratch.py`.
+
+```python
+import epsr
+from epsr import AtomType, Molecule, NeutronSample, System
+
+OW = AtomType("OW", element="O", epsilon=0.6503, sigma=3.165492, charge=-0.82,
+              coarse_grain={"rmax": 1.55})
+HW = AtomType("HW", element="H", epsilon=0.0, sigma=0.0, charge=0.41, mass=2.0,
+              exchangeable=True)
+water = Molecule.from_geometry("Water", centre=("O", OW),
+                               arms=[("H1", HW, 0.976), ("H2", HW, 0.976)],
+                               angle=107.134)
+
+system = System("waterbox", temperature=300.0, density=0.1)   # atoms/Å³, cubic box
+system.add(water, 1000)
+print(system.pair_parameters())
+
+samples = [
+    NeutronSample("D2O", "data/SLS18502-D2O.mint01", isotopes={"HW": {2: 1.0}}),
+    NeutronSample("HDO", "data/SLS18500-HDO5050.mint01", isotopes={"HW": {1: 0.5, 2: 0.5}}),
+    NeutronSample("H2O", "data/SLS18498-H2O.mint01"),          # natural isotopes
+]
+
+project = epsr.Project.create("work/water", system, samples,
+                              settings={"rshmin": 0.7}, seed=None, overwrite=True)
+project.equilibrate(iterations=100)                 # scratch start + 99, ereq = 0
+history = project.refine(ereq=3.0, runs=2, iterations=100)
+result = project.results()                          # read-only Simulation
+result.fit("D2O"), result.gr_inter("OW", "HW"), result.potential.pair_params()
+```
+
+**Atom types** (`AtomType`) carry the reference potential: Lennard-Jones ε (kJ/mol)
+and σ (Å), charge (e), mass (default: EPSR's atomic weight of the element) and
+whether the atom is `exchangeable` (labile hydrogen). Labels have at most three
+characters. EPSR always mixes the pair potentials from the two types
+(Lorentz–Berthelot, ε_ij = √(ε_i ε_j), σ_ij = (σ_i + σ_j)/2, plus Coulomb
+1390 q_i q_j / r); there is no per-pair Lennard-Jones input, and a type with ε = 0
+has no Lennard-Jones site at all, so its pairs are Coulomb-only.
+`system.pair_parameters()` prints the mixed values with a `terms` column.
+
+**Molecules** (`Molecule`) are named atoms with positions, bonds, angles and
+rotations; atoms are given by name or 0-based index:
+
+```python
+Molecule("Water",
+         atoms=[("O", OW, (0, 0, 0)), ("H1", HW, (0.976, 0, 0)), ("H2", HW, (x2, y2, 0))],
+         bonds=[("O", "H1"), ("O", "H2")],
+         angles=None)                     # None: every angle makemole needs, from the geometry
+Molecule.from_geometry(...)               # a central atom with 1-4 arms (water, NH3, CH4)
+Molecule.from_xyz("water.xyz", types={"O": OW, "H": HW})   # bonds="auto" by covalent radii
+Molecule.from_mol("DMSO.mol")             # an EPSR .mol file
+Molecule.from_ato("DMSO.ato")             # a template .ato (restraints rounded to 3 digits)
+Molecule.atom(ion_type)                   # a one-atom "molecule" (ions, silica)
+```
+
+Bonds and angles are EPSR's harmonic *restraints* to the target geometry, not a
+force field: there are no per-bond force constants. Their stiffness is set per
+molecule by `vibtemp`, `angtemp` and `dihtemp` and scaled by the masses, the bond
+length and the temperature. Angles are restrained as 1-3 distances. `bond_lengths=`
+and `angle_values=` set targets that differ from the coordinates. Dihedral
+restraints are not supported yet.
+
+**The box** (`System`) takes the temperature and the atomic number density in
+atoms/Å³. **The order of the `add` calls, and of the atoms in each molecule, fixes
+the atom-type order**, and with it the order of every pair-resolved result.
+
+**Samples** (`NeutronSample`) are one data file each (a Gudrun `.mint01` file, checked
+when the sample is created) with the isotopic composition as
+`{atom type: {mass number: fraction}}`, mass number 0 being the natural element,
+exactly EPSR's `abundances`. Types that are not given are natural. The mass numbers
+are checked against the engine's scattering-length table before anything runs.
+`exchangeable=[...]` on a sample replaces the types' own flags for that sample. The
+sample name selects the dataset everywhere: `result.fit("D2O")`,
+`result.summary.r_factor_for("D2O")`, `settings={"data": {"D2O": {"tweak": 1.05}}}`.
+
+**Settings** use EPSR's own keyword names (`ntimes`, `qmin`, `rshmin`, `ereq`...),
+checked against the engine's keyword table: `epsr.keywords()` lists them and
+`epsr.Settings.describe("feedback")` explains one. A dataset keyword given globally
+(`rshmin`) applies to every sample that does not set it. File names, the number of
+datasets, the run-state flags and `niter` are set by the library.
+
+**The schedule.** `Project.create` does not run EPSR. The first `equilibrate` makes
+the *scratch start*: a one-iteration run without a `.pcof` file, which creates it,
+followed by `iterations - 1` iterations on the reference potential (`ereq = 0`).
+`refine(ereq=..., runs=..., iterations=...)` then switches the empirical potential
+on and refines; `run(iterations=...)` is a single run. `run` and `refine` refuse a
+project that has never run. `set(**settings)` changes keywords in the files between
+runs, `settings` shows the current values and `status()` summarises the state.
+`record=True` records every iteration with `epsr.vis` (`project.trajectory()`), and
+`epsr.analysis.first_peak` / `coordination_number` cover the common g(r) analysis.
+
+**Seeds.** EPSR's random-number state is stored in the box file, so every run is
+reproducible. `seed=None` keeps EPSR's default (identical to `seed=1`); any other
+seed (1 to 2³¹ − 2) gives a different starting box.
+
+**Crystals and other ready-made structures** come from a PDB file instead of
+molecules (`examples/08_cu_btc/cu_btc.py`):
+
+```python
+framework = epsr.Framework.from_pdb("CuBTC.pdb", types=[CU, O, C1, C2, C3, H],
+                                    vdw_factor=0.68, dihedrals=False)
+system = epsr.System("CuBTC", temperature=300.0, structure=framework)  # density from the cell
+system.monte_carlo(tol=0.0, stepmi=0.1, stepri=0.3, stepr=0.3, stepm=1.0)
+project = epsr.Project.create("work/cubtc", system, samples,
+                              settings={"qwidthqmax": (0.2, 5.0), "hklqmin": (0.0, 10.0, 0.0)})
+```
+
+`readpdb` makes one molecule per PDB residue and bonds atoms closer than `vdw_factor`
+times the sum of their van der Waals radii (EPSR's `vanderWaalsRadii.txt` ships with the
+package); `changeato` then applies the temperature, the Monte Carlo parameters and each
+type's ε, σ, charge and mass. The atom types must be the PDB atom names in order of first
+appearance, and their elements the ones `readpdb` reads from the atom names; both are
+checked when the framework is created. The crystal positions are kept (no `randomise`,
+no `fmole`); the cell must be cubic for now. `System.monte_carlo(...)` works for
+molecular systems too. `epsr.io.read_bragg` and `read_inten` read the Bragg outputs.
+
+The folder also holds `epsr_project.json` (the definitions, for `project.system` and
+`project.samples`) and the generated `.mol` files; EPSR ignores both. The setup
+programs work in the folder as their working directory, so build several folders
+in parallel with processes, not threads.
+
+## 3. A first run
 
 ```python
 import epsr
@@ -68,7 +197,7 @@ for s in sim.iterations():          # yields a Summary after each iteration
 order and only up to `niter`; a finished `Simulation` cannot be run again. Create
 a new one for the next run.
 
-## 3. Inspecting results
+## 4. Inspecting results
 
 All arrays are float32 numpy copies.
 
@@ -112,7 +241,7 @@ g.to_dataframe()                    # with the pandas extra
 proj.history()                      # the whole .erg file as a History
 ```
 
-## 4. Changing parameters: overrides
+## 5. Changing parameters: overrides
 
 Overrides change input keywords after the files are read, as if the lines had
 been appended to the `.EPSR.inp` file. Keywords of the `.pcof` header (`ereq`,
@@ -129,12 +258,23 @@ sim = proj.simulation(overrides=["ntimes 10", "data 2", "tweak 1.05"])   # raw l
 ```
 
 Note that `data` numbers in overrides are 1-based like the input file, while
-every other dataset index in the API is 0-based.
+every other dataset index in the API is 0-based. A dataset can also be given by
+name (`{"data": {"HDO": {"tweak": 1.05}}}`): the sample names of a folder made by
+`Project.create`, or else the data-file names without extension.
 
 Overrides are written back to the input files at the end of the run, so they
 persist. An unknown keyword raises `EpsrInputError`.
 
-## 5. Refining: repeated runs
+`settings=` is the checked form of the same thing: EPSR keyword names validated
+against the engine's table before anything runs (with "did you mean" for typos),
+datasets by name or 0-based index. `epsr.Settings` holds such values, and
+`project.set(**settings)` writes them into the files without running.
+
+```python
+sim = proj.simulation(settings={"ntimes": 10, "data": {"D2O": {"tweak": 1.05}}})
+```
+
+## 6. Refining: repeated runs
 
 A real refinement is hundreds of EPSR runs. `epsr.refine` runs them in a row,
 each with a fresh `Simulation`:
@@ -157,7 +297,7 @@ epsr.plot.history(hist)
 A progress bar appears when tqdm is installed and stdout is a terminal
 (`progress=True/False` forces it).
 
-## 6. Perturbing the potential
+## 7. Perturbing the potential
 
 `sim.potential` gives access to the potentials of a live simulation.
 
@@ -195,7 +335,7 @@ To run Monte Carlo with a fixed EP, switch refinement off with
 The reference-potential parameters (`type_params`) are read-only; edit the `.ato`
 file, for example with the `changeato` tool, to change them.
 
-## 7. The setup and analysis tools
+## 8. The setup and analysis tools
 
 All 35 programs of the EPSR suite are available through `epsr.tools.run(folder,
 command, args, answers)`, with the same arguments as on the EPSR command line.
@@ -229,8 +369,21 @@ tools.run(proj.folder, "writexyz", ["DMSO.ato"], answers=["Y", "1", "10 10", "-1
   `system_commands.txt` and write `dirlist.txt` there). `tools.run` therefore
   switches to the folder for the duration of the call; tool runs are serialised
   by a lock.
+* The setup programs also have typed wrappers, which `Project.create` uses
+  (section 2) and which check that their output was written:
 
-## 8. Plotting
+  ```python
+  tools.makemole(folder, "Water")                              # Water.mol -> Water.ato
+  tools.mixato(folder, [("Water", 1000)], density=0.1, box="waterbox")
+  tools.randomise(folder, "waterbox", seed=42)                 # seed=None: EPSR's default
+  tools.fmole(folder, "waterbox", 100)                         # moves *.mol aside for the run
+  tools.nwts(folder, "D2O.NWTS.dat", box="waterbox", components=[
+      {"atom": "OW", "atsymbol": "O", "iexchange": 0, "abundances": {0: 1.0}},
+      {"atom": "HW", "atsymbol": "H", "iexchange": 1, "abundances": {2: 1.0}},
+  ])                                                           # -> D2O.NWTStot.wts
+  ```
+
+## 9. Plotting
 
 `epsr.plot` replaces the PGPLOT/gnuplot front ends, which are not ported. It needs
 the `plot` extra.
@@ -278,12 +431,16 @@ over the iterations. `screenshot()` and `movie()` (GIF or MP4) work off-screen.
 `examples/05_experimental_water.py` and `examples/06_experimental_SiO2.py`
 end with these figures.
 
-`epsr.vis` needs the `plot` extra (matplotlib, scipy). It is the visualisation
+`epsr.vis` needs the `plot` extra (matplotlib, scipy); it can always be imported,
+and `epsr.vis.available()` says whether the extra is installed (without it, any
+other name of `epsr.vis` raises `ImportError`). With `Project`, pass `record=True`
+to `equilibrate`, `refine` or `run` instead of using the recorded functions, and
+get the trajectory with `project.trajectory()`. It is the visualisation
 toolkit of `visualisation/python_visualisation_toolkit` (standalone package
 `epsrvis`, with documented examples). The shared modules are identical in both
 places.
 
-## 9. Parallel runs
+## 10. Parallel runs
 
 **Inside one simulation.** The engine parallelises its expensive loops (energies,
 pressure, structure factors, the S(Q) to g(r) transform, the potential fit) over
@@ -306,7 +463,7 @@ one pool of worker threads, so running several at once gives the same results
 but does not make each of them faster; it helps most when `RAYON_NUM_THREADS` is
 set low or the machine has many cores.
 
-## 10. Errors
+## 11. Errors
 
 | exception | when | also a |
 |---|---|---|
@@ -317,12 +474,12 @@ set low or the machine has many cores.
 All three derive from `epsr.EpsrError`. The list of unsupported inputs is in
 `rust/docs/FORTRAN_MAP.md` ("Still unsupported").
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 * *The progress messages do not appear in my notebook.* With `verbose=True` the
   engine prints from Rust straight to the process's standard output, which
   Jupyter does not capture. Watch the terminal that runs the kernel.
 * *My edits to the EP had no effect.* Check whether the EP was already at `ereq`
-  (see section 6), and whether refinement (`potfac`) changed it again during the run.
+  (see section 7), and whether refinement (`potfac`) changed it again during the run.
 * *Results differ slightly between machines.* EPSR computes in single precision
   and uses the platform's libm; the last digits can differ outside Linux/glibc.

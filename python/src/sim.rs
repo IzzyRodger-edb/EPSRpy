@@ -505,6 +505,33 @@ impl Simulation {
         Ok(atom_types)
     }
 
+    /// Per pair (in `pair_labels` order): the mixed reference-potential parameters
+    /// (`ecor`, `dcor`, `qcor` = 1390 q_i q_j) and the per-pair terms of the pair's
+    /// `.pcof` entry (`coulfac`, `rminex`, `pcoefex`, `coordex`, `rmaxex`,
+    /// `pcoefexmax`, and `gaussians` as `(position, width, height)` tuples).
+    fn pair_params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        let labels = self.engine.pair_labels();
+        let pairs = PyList::empty(py);
+        for ((first_type, second_type), params) in labels.into_iter().zip(self.engine.pair_params()) {
+            pairs.append(dict!(py;
+                "type1" => first_type,
+                "type2" => second_type,
+                "ecor" => params.epsilon,
+                "dcor" => params.sigma,
+                "qcor" => params.charge_product,
+                "pcof_entry" => params.pcof_entry,
+                "coulfac" => params.coulfac,
+                "rminex" => params.rminex,
+                "pcoefex" => params.pcoefex,
+                "coordex" => params.coordex,
+                "rmaxex" => params.rmaxex,
+                "pcoefexmax" => params.pcoefexmax,
+                "gaussians" => params.gaussians,
+            ))?;
+        }
+        Ok(pairs)
+    }
+
     /// Cubic box side (Å).
     fn box_size(&self) -> f32 {
         self.engine.box_size()
