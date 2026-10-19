@@ -83,7 +83,7 @@ started without the user's agreement, even if it looks small.
 | C15 | `pair_params()` from the engine: ε_ij, σ_ij, q_i q_j, `coulfac`, active `.pcof` extras, `terms` | 0, 5 | WF §6 | water values; EPSR-test-ex1 shows the extras | **done** (Phases 0, 5): `result.potential.pair_params()` → `PairTable` with `coulfac` and `.pcof` extras (`tests/test_project_setup.py`) |
 | C16 | `epsr.analysis.first_peak`, `coordination_number` | 5 | WF §6 | O–O 2.79 Å, O···H ≈ 1.8 Å on the water result | **done** (Phase 5): `epsr.analysis` (numpy only); O–O 2.79 Å, O···H ≈ 1.8 Å on the full run (`tests/test_project_setup.py`) |
 | C17 | `epsr.vis.available()` | 5 | WF §5 | importable with and without the `plot` extra | **done** (Phase 5): `epsr.vis` always importable (user decision, see notes) (`tests/test_project_setup.py`) |
-| C18 | Example 07 rewritten to WF; docs (`user_guide`, `api`, READMEs) | 6 | WF | **new slow test:** `epsr_run/` byte-identical to the committed output |  |
+| C18 | Example 07 rewritten to WF; docs (`user_guide`, `api`, READMEs) | 6 | WF | **new slow test:** `epsr_run/` byte-identical to the committed output | **done** (Phase 6): example 07 rewritten to the wireframe; `tests/test_example_07.py` (slow) byte-identical to the committed `epsr_run/`; user guide §2, api.md, READMEs, testing.md |
 | C19 | Backwards compatibility: every existing public call keeps working (`overrides` as an alias of `settings`) | all | — | the existing `python/tests` pass unchanged | held after every phase: the 82 original fast tests pass unchanged |
 
 ### In scope next: crystalline systems from a PDB file (example 08, Cu-BTC, §8)
@@ -237,6 +237,16 @@ started without the user's agreement, even if it looks small.
   - `epsr.analysis` is plain numpy (not re-exported from `epsr.vis.metrics`, which
     needs the `plot` extra). State errors raise `epsr.ProjectStateError`
     (a `RuntimeError`).
+- **Phase 6 (2026-10-19).**
+  - Example 07 follows the wireframe. Differences: the comment on the atom-by-atom
+    form no longer claims it gives the same box (see Phase 2); the R² per dataset and
+    the hydrogen-bond count of the old summary are kept; without the `plot` extra the
+    script exits with status 0 instead of `SystemExit("...")` (status 1).
+  - The committed `output/` (figures, trajectory, `summary.txt`, `epsr_run/`) was not
+    regenerated: `epsr_run/` is the oracle. A fresh run also writes `Water.mol` and
+    `epsr_project.json` into `epsr_run/`; the test allows exactly these two extras and
+    excepts `.qdr`, as documented.
+  - Optional port of example 06 to the new API: not done.
 
 ### Out of scope until agreed with the user
 
