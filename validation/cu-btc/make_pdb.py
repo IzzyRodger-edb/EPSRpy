@@ -3,7 +3,7 @@
 
 usage: make_pdb.py DISSOLVE_INPUT OUTPUT_PDB
 
-DISSOLVE_INPUT is experimental_data/cu-btc/input.txt. The species there is one
+DISSOLVE_INPUT is experimental_data/cu-btc/dissolve/input.txt. The species there is one
 cubic unit cell of the framework (624 atoms, a = 26.3336 Å). EPSR cannot treat a
 periodic network as one molecule, so the framework is split at its Cu-O bonds:
 
@@ -137,6 +137,8 @@ def main():
     if 2 * len(copper_pairs) + sum(len(linker) for linker in linkers) != len(atoms):
         raise SystemExit("the framework does not split into Cu pairs and linkers")
 
+    # The REMARK keeps the input's path from when CuBTC.pdb was made (it has since
+    # moved to experimental_data/cu-btc/dissolve/), so the committed file is reproduced.
     lines = [
         "REMARK   Cu-BTC (HKUST-1) unit cell from the Dissolve example "
         "experimental_data/cu-btc/input.txt",

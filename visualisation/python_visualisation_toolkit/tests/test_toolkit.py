@@ -108,7 +108,7 @@ def test_reference_partials(water, tmp_path):
     from conftest import ROOT
     from epsrvis import load_reference_partials, read_isis_gr
 
-    exp = ROOT / "presentation_assets" / "experimental_data"
+    exp = ROOT.parents[1] / "experimental_data" / "water" / "reference_partials"
     r, g, err = read_isis_gr(exp / "h2o298aoogor.txt")
     assert np.all(np.diff(r) > 0) and r[-1] > 17 and abs(g[-1] - 1) < 0.05
     assert 2.6 < r[np.argmax(g)] < 2.9  # first O-O peak of water

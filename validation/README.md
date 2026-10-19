@@ -164,7 +164,7 @@ output of every program and the full comparison after every step.
 
 ## From the Dissolve inputs to EPSR inputs
 
-The files in `experimental_data/` are Dissolve inputs, not EPSR inputs. The
+The Dissolve inputs in `experimental_data/<case>/dissolve/` are not EPSR inputs. The
 following was carried over:
 
 * **Water.** Geometry (O–H 0.976 Å, H–O–H 107.134°), LJ (ε 0.6503 kJ/mol,

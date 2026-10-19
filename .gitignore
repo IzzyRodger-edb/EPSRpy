@@ -1,7 +1,2 @@
 # Python bytecode caches (scripts in validation/ and rust/tools are imported by the tests)
 __pycache__/
-
-# Web app: virtualenv and per-deployment state (database, run folders, secret key)
-webapp/.venv/
-webapp/var/
-webapp/src/*.egg-info/

@@ -24,8 +24,8 @@ Two worked examples come with data:
 | [example_H2O/](example_H2O/README.md) | 1000 water molecules | H₂O, D₂O, HDO neutron data (SANDALS) |
 | [example_SiO2/](example_SiO2/README.md) | 1500 Si + 3000 O, amorphous silica | one neutron data set (NIMROD) |
 
-[presentation_assets/](presentation_assets/README.md) has full-HD MP4 movies and stills of both, with the water g(r)
-compared against experimental partials (Soper 2000).
+The experimental water partials (Soper 2000) used by `load_reference_partials` are in
+[`experimental_data/water/reference_partials/`](../../experimental_data/water/reference_partials/SOURCE.md).
 
 ---
 
