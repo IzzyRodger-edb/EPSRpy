@@ -19,13 +19,16 @@ See ``python/docs/`` for the user guide and API reference.
 
 from __future__ import annotations
 
-from . import io, plot, samples, settings, system, tools
+import importlib
+from typing import Any
+
+from . import analysis, io, plot, samples, settings, system, tools
 from ._core import VERSION_DATE
 from ._core import __version__ as __version__
 from .errors import EpsrError, EpsrInputError, EpsrIOError, EpsrUnsupportedError
 from .io import read_erg, read_keyword_file, read_table
 from .potential import Potential, PotParams, TypeParams
-from .project import Project, copy_folder
+from .project import Project, ProjectStateError, ProjectStatus, copy_folder
 from .refine import History, refine, refine_many
 from .samples import NeutronSample
 from .settings import Settings, keywords
@@ -34,6 +37,7 @@ from .system import AtomType, Molecule, System
 
 __all__ = [
     "VERSION_DATE",
+    "analysis",
     "AtomType",
     "Control",
     "Dataset",
@@ -48,6 +52,8 @@ __all__ = [
     "PotParams",
     "Potential",
     "Project",
+    "ProjectStateError",
+    "ProjectStatus",
     "Settings",
     "Simulation",
     "Summary",
@@ -68,3 +74,10 @@ __all__ = [
     "system",
     "tools",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """``epsr.vis`` is imported on first use (it loads matplotlib when available)."""
+    if name == "vis":
+        return importlib.import_module(".vis", __name__)
+    raise AttributeError(f"module 'epsr' has no attribute {name!r}")

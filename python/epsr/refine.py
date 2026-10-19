@@ -161,6 +161,7 @@ def refine(
     snapshot_every: int | None = None,
     verbose: bool = False,
     progress: bool | None = None,
+    runner: Callable[[Simulation], Any] | None = None,
 ) -> History:
     """Run EPSR ``n_runs`` times in a row on one folder, as the EPSR shell loop does.
 
@@ -185,6 +186,10 @@ def refine(
         Copy the folder to ``<folder>.snapshots/runNNNN`` every this many runs.
     progress:
         Show a ``tqdm`` progress bar (if installed). Default: when stdout is a terminal.
+    runner:
+        ``runner(simulation)`` performs each run instead of ``simulation.run()``,
+        e.g. to record every iteration (:meth:`epsr.Project.refine` with
+        ``record=True``).
     """
     if not isinstance(project, Project):
         project = Project(project)
@@ -194,7 +199,10 @@ def refine(
         first_run_overrides = initial_overrides if run_number == 1 else None
         override_lines = _combine_overrides(overrides, first_run_overrides)
         simulation = project.simulation(override_lines, verbose=verbose)
-        simulation.run()
+        if runner is None:
+            simulation.run()
+        else:
+            runner(simulation)
         history.append(simulation.summary)
 
         if snapshot_every and run_number % snapshot_every == 0:

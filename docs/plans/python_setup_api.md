@@ -72,19 +72,19 @@ started without the user's agreement, even if it looks small.
 | C4 | `NeutronSample`: isotopes as `{mass_number: fraction}` (D7), checked against the isotope table; per-sample `exchangeable` override; per-dataset keywords; `.mint01` validation | 3 | WF §3 | rendered `.NWTS.dat` → `nwts` → `.NWTStot.wts` identical to `validation/water`; bad isotopes raise | **done** (Phase 3): `epsr.samples.NeutronSample`, `epsr.io.read_mint01`; water and silica weights identical to `validation/` (`tests/test_samples.py`) |
 | C5 | `Settings`: the keyword table binding; EPSR names (D1); unknown keys rejected; routing to `.inp`/`.pcof`/data blocks; `.inp` rendering | 0, 4 | WF §4 | table round trip; `.inp` after the scratch run identical to the validated one | **done** (Phases 0, 4): `epsr.keywords()`, `epsr.Settings`; scratch run from the rendered `.inp` identical to the validated steps, every file (`tests/test_settings.py`) |
 | C6 | Typed setup tools: `makemole`, `mixato`, `randomise`, `fmole` (`.mol` handled), `nwts` from structured input | 1 | inside `create` | the water box rebuilt with these calls is identical to `validation/water` | **done** (Phase 1): `tools.makemole/mixato/randomise/fmole/nwts(components=)`; water box and weights identical to the validated steps (`tests/test_setup_tools.py`) |
-| C7 | `seed=` (D3, §1.7): `set_rng_seed`; `None` = default | 0, 1 | WF §4 | the §1.7 table: default = seed 1, 42 reproducible and different, 0 rejected | Phases 0–1 done: `_core.set_rng_seed`, `tools.set_rng_seed`, `tools.randomise(seed=)`; §1.7 table reproduced. `Project.create(seed=)` in Phase 5 |
-| C8 | `Project.create`: steps 1–6 of §1.6, no EPSR run (D2), `epsr_project.json`, pending `.pcof` settings, rejects `ereq ≠ 0` | 5 | WF §4 | folder contents before the first run identical to the validated case at that step |  |
-| C9 | `equilibrate`: scratch start + (N − 1) on the first call (D2); `History` with both rows | 5 | WF §5 | `create` + `equilibrate(100)` identical to steps 7–8 of `validation/water` |  |
-| C10 | `refine(ereq=, runs=, iterations=, until=, callback=, snapshot_every=)` | 5 | WF §5 | full water schedule identical to `validation/water` |  |
-| C11 | `run`, `set`, `settings`, `status`; `run`/`refine` on a project that has never run raise an error | 5 | WF §4 | unit tests |  |
-| C12 | `record=True` and `project.trajectory()` (all recorded runs concatenated) | 5 | WF §5, §7 | the trajectory has scratch + 99 + 200 steps; recording does not change any file |  |
-| C13 | `project.results()`: no file modified (`.qdr` included) | 0 (optional Rust), 5 | WF §6 | folder hashes are unchanged before and after the call | Phase 0: no Rust change (decision in *Implementation notes*) |
-| C14 | Datasets by sample name everywhere (`fit("D2O")`, settings `data` blocks, `Summary.r_factor_for`) | 5 | WF §6 | unit tests; integers still work |  |
-| C15 | `pair_params()` from the engine: ε_ij, σ_ij, q_i q_j, `coulfac`, active `.pcof` extras, `terms` | 0, 5 | WF §6 | water values; EPSR-test-ex1 shows the extras | Phase 0 part done: `_core.Simulation.pair_params()` |
-| C16 | `epsr.analysis.first_peak`, `coordination_number` | 5 | WF §6 | O–O 2.79 Å, O···H ≈ 1.8 Å on the water result |  |
-| C17 | `epsr.vis.available()` | 5 | WF §5 | importable with and without the `plot` extra |  |
+| C7 | `seed=` (D3, §1.7): `set_rng_seed`; `None` = default | 0, 1 | WF §4 | the §1.7 table: default = seed 1, 42 reproducible and different, 0 rejected | **done** (Phases 0, 1, 5): `set_rng_seed`, `tools.randomise(seed=)`, `Project.create(seed=)`; §1.7 table reproduced |
+| C8 | `Project.create`: steps 1–6 of §1.6, no EPSR run (D2), `epsr_project.json`, pending `.pcof` settings, rejects `ereq ≠ 0` | 5 | WF §4 | folder contents before the first run identical to the validated case at that step | **done** (Phase 5): water and silica folders identical to the validated steps before the first run (`tests/test_project_setup.py`) |
+| C9 | `equilibrate`: scratch start + (N − 1) on the first call (D2); `History` with both rows | 5 | WF §5 | `create` + `equilibrate(100)` identical to steps 7–8 of `validation/water` | **done** (Phase 5): short schedule identical to the steps; full schedule in the slow test (`tests/test_project_setup.py`) |
+| C10 | `refine(ereq=, runs=, iterations=, until=, callback=, snapshot_every=)` | 5 | WF §5 | full water schedule identical to `validation/water` | **done** (Phase 5): full water schedule identical to the committed run (slow test in `tests/test_project_setup.py`) |
+| C11 | `run`, `set`, `settings`, `status`; `run`/`refine` on a project that has never run raise an error | 5 | WF §4 | unit tests | **done** (Phase 5): `tests/test_project_setup.py` |
+| C12 | `record=True` and `project.trajectory()` (all recorded runs concatenated) | 5 | WF §5, §7 | the trajectory has scratch + 99 + 200 steps; recording does not change any file | **done** (Phase 5): recorded runs give identical files; 1 + 99 + 200 steps (`tests/test_project_setup.py`) |
+| C13 | `project.results()`: no file modified (`.qdr` included) | 0 (optional Rust), 5 | WF §6 | folder hashes are unchanged before and after the call | **done** (Phase 5): `.qdr` saved and restored; folder hashes unchanged (`tests/test_project_setup.py`) |
+| C14 | Datasets by sample name everywhere (`fit("D2O")`, settings `data` blocks, `Summary.r_factor_for`) | 5 | WF §6 | unit tests; integers still work | **done** (Phase 5): `fit`, `data_*`, `get_parameter`, settings/overrides `data` blocks, `Summary.r_factor_for` (`tests/test_project_setup.py`) |
+| C15 | `pair_params()` from the engine: ε_ij, σ_ij, q_i q_j, `coulfac`, active `.pcof` extras, `terms` | 0, 5 | WF §6 | water values; EPSR-test-ex1 shows the extras | **done** (Phases 0, 5): `result.potential.pair_params()` → `PairTable` with `coulfac` and `.pcof` extras (`tests/test_project_setup.py`) |
+| C16 | `epsr.analysis.first_peak`, `coordination_number` | 5 | WF §6 | O–O 2.79 Å, O···H ≈ 1.8 Å on the water result | **done** (Phase 5): `epsr.analysis` (numpy only); O–O 2.79 Å, O···H ≈ 1.8 Å on the full run (`tests/test_project_setup.py`) |
+| C17 | `epsr.vis.available()` | 5 | WF §5 | importable with and without the `plot` extra | **done** (Phase 5): `epsr.vis` always importable (user decision, see notes) (`tests/test_project_setup.py`) |
 | C18 | Example 07 rewritten to WF; docs (`user_guide`, `api`, READMEs) | 6 | WF | **new slow test:** `epsr_run/` byte-identical to the committed output |  |
-| C19 | Backwards compatibility: every existing public call keeps working (`overrides` as an alias of `settings`) | all | — | the existing `python/tests` pass unchanged |  |
+| C19 | Backwards compatibility: every existing public call keeps working (`overrides` as an alias of `settings`) | all | — | the existing `python/tests` pass unchanged | held after every phase: the 82 original fast tests pass unchanged |
 
 ### In scope next: crystalline systems from a PDB file (example 08, Cu-BTC, §8)
 
@@ -195,6 +195,48 @@ started without the user's agreement, even if it looks small.
     `NeutronSample`'s `tweak`, `efilereq`, `szeros` and `porodadd` now default to `None`
     (resolved values are unchanged).
   - Mellor's `auto_rshmin` is `epsr.settings.suggest_rshmin(system)`, opt-in only.
+- **Phase 5 (2026-10-19).**
+  - **`epsr.vis` is always importable (decided by the user, 2026-10-19).** C17's
+    `epsr.vis.available()` cannot coexist with `from epsr import vis` raising
+    `ImportError` without the `plot` extra. Now `epsr.vis` imports always;
+    `available()` says whether the extra is there, and any other name raises the
+    usual `ImportError` when used. Examples 05 and 06 use `vis.available()` instead of
+    the `ImportError` fallback. `epsr.vis` is imported lazily on first access of
+    `epsr.vis` (it loads matplotlib).
+  - **The `.mol` files stay in the folder** (makemole's rewrite of the generated text,
+    for inspection); `tools.fmole` moves them aside for its run. A created folder is
+    the validated folder plus `epsr_project.json` and, for molecular systems,
+    `<molecule>.mol` (the silica steps keep their `.mol` files too).
+  - `fmole` is skipped when every molecule is a single atom (as in the silica steps)
+    or with `relax_iterations=0`. With `randomise=False` a seed is written into the
+    box before the scratch run (§1.7).
+  - **Pending `.pcof` settings** of `create` (and of `set()` before the first run) are
+    kept in `epsr_project.json` and passed as overrides to the scratch run; `ereq` is
+    never pending (create refuses a non-zero one).
+  - **`equilibrate` on a project that has run** adds `ereq 0.0` when the EP is on.
+  - **`set()` edits the files** like `validation/set_keyword.py` (keyword section, or
+    the `data n` block), keeping the description; `.pcof` keywords before the first
+    run become pending. `project.settings` returns the files' current text values.
+  - **`status().iterations`** counts `.erg` lines: EPSR leaves `nsumt` at −1.
+  - **`results()`**: reading a folder rewrites only `.qdr`, which is saved and put
+    back. Reading runs no iteration, so the engine's summary is empty; `results()`
+    hands over the summary of the last run made through that `Project` object
+    (`project.last_summary`), which `result.summary.r_factor_for(...)` uses.
+  - **Datasets by name:** names from `epsr_project.json`, else the data-file stems.
+    `settings=` (validated, datasets by name or **0-based** index) and `overrides=`
+    (unchecked, as before, datasets by **1-based** number or name) coexist on
+    `Simulation` and `Project.simulation`; `overrides` is not a strict alias because
+    its integer numbering must stay 1-based for compatibility.
+  - **`record=`** is `True` or an `epsr.vis.TrajectoryRecorder`; with `True` the
+    project's recorder uses the `epsr.vis` case whose atom types match the system
+    (OW/HW → `water`), so example 07's figures keep their styling. The trajectory is
+    in memory (`project.trajectory()`), across all recorded calls.
+  - `epsr.refine` gained a keyword-only `runner=` hook (default `Simulation.run`), used
+    by `Project.refine(record=True)` so that `until`, `callback` and `snapshot_every`
+    work with recording.
+  - `epsr.analysis` is plain numpy (not re-exported from `epsr.vis.metrics`, which
+    needs the `plot` extra). State errors raise `epsr.ProjectStateError`
+    (a `RuntimeError`).
 
 ### Out of scope until agreed with the user
 

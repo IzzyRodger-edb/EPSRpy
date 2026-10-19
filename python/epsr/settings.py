@@ -266,6 +266,14 @@ class Settings(MutableMapping[str, Any]):
                 values.update(self._datasets[key])
         return values
 
+    def dataset_overrides(self, index: int, name: str | None = None) -> dict[str, Any]:
+        """Only the values given for dataset ``index`` (0-based) or sample ``name`` in ``data``."""
+        values: dict[str, Any] = {}
+        for key in (index, name):
+            if key is not None and key in self._datasets:
+                values.update(self._datasets[key])
+        return values
+
     def check_datasets(self, names: Sequence[str]) -> None:
         """Every dataset key of ``data`` must be one of ``names`` or a valid index."""
         for key in self._datasets:

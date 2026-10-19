@@ -28,10 +28,9 @@ from pathlib import Path
 import epsr
 from epsr import tools
 
-try:
-    from epsr import vis
-except ImportError:  # the 'plot' extra (matplotlib, scipy) is not installed
-    vis = None
+from epsr import (
+    vis,
+)  # vis.available(): False without the 'plot' extra (matplotlib, scipy)
 
 EXAMPLES_FOLDER = Path(__file__).resolve().parent
 REPOSITORY = EXAMPLES_FOLDER.parents[1]
@@ -65,7 +64,7 @@ for sample in ("H2O", "D2O", "HDO"):
     tools.nwts(WORK_FOLDER, f"{sample}.NWTS.dat")  # neutron weights per isotopic sample
 
 # Record every EPSR iteration for the figures (step 6) when epsr.vis is available.
-recorder = vis.TrajectoryRecorder(case="water") if vis is not None else None
+recorder = vis.TrajectoryRecorder(case="water") if vis.available() else None
 project = epsr.Project(WORK_FOLDER, "waterbox.EPSR.inp")
 
 

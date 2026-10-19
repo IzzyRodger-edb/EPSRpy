@@ -29,6 +29,7 @@ import numpy.typing as npt
 
 if TYPE_CHECKING:
     from .simulation import PairKey, Simulation
+    from .system import PairTable
 
 __all__ = ["Potential", "PotParams", "TypeParams"]
 
@@ -169,6 +170,48 @@ class Potential:
     @property
     def type_params(self) -> list[TypeParams]:
         return [TypeParams(**values) for values in self._engine.type_params()]
+
+    def pair_params(self) -> PairTable:
+        """The interactions of every pair as the engine uses them, in pair order.
+
+        Per pair the Lorentz–Berthelot mixed ε_ij and σ_ij, the Coulomb prefactor
+        1390 q_i q_j, the ``.pcof`` Coulomb factor ``coulfac`` and any extra
+        per-pair terms of the ``.pcof`` file (repulsive core, additional
+        Gaussian or modified-Morse terms), with a ``terms`` column naming the
+        interactions present. Print it, index it by pair (``table["OW-HW"]``) or
+        convert it with ``to_dataframe()``. The same table before a run is
+        :meth:`epsr.System.pair_parameters`.
+        """
+        from .system import PairParameters, PairTable
+
+        rows = []
+        for values in self._engine.pair_params():
+            gaussians = tuple(
+                tuple(float(v) for v in term) for term in values["gaussians"]
+            )
+            charge_product = float(values["qcor"])
+            rows.append(
+                PairParameters(
+                    types=(values["type1"], values["type2"]),
+                    epsilon=float(values["ecor"]),
+                    sigma=float(values["dcor"]),
+                    charge_product=charge_product,
+                    terms=PairParameters.terms_of(
+                        float(values["ecor"]),
+                        charge_product * float(values["coulfac"]),
+                        repulsive_core=float(values["rminex"]) > 0,
+                        n_additional=len(gaussians),
+                    ),
+                    coulfac=float(values["coulfac"]),
+                    rminex=float(values["rminex"]),
+                    pcoefex=float(values["pcoefex"]),
+                    coordex=float(values["coordex"]),
+                    rmaxex=float(values["rmaxex"]),
+                    pcoefexmax=float(values["pcoefexmax"]),
+                    gaussians=gaussians,  # type: ignore[arg-type]
+                )
+            )
+        return PairTable(rows)
 
     # ---------------------------------------------------------------- write
     def _write_coefficients_with_flags(

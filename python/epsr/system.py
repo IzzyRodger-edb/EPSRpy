@@ -1166,12 +1166,20 @@ class _AtoFile:
 # --------------------------------------------------------------------------- pairs
 @dataclass(frozen=True)
 class PairParameters:
-    """The reference-potential parameters of one pair of atom types.
+    """The interactions of one pair of atom types.
 
     ``epsilon`` and ``sigma`` are the Lorentz–Berthelot mixed values,
     ``charge_product`` the Coulomb prefactor 1390 q_i q_j (kJ mol⁻¹ Å) and
     ``terms`` the interactions that are actually present: ``"LJ + Coulomb"``,
-    ``"LJ only"``, ``"Coulomb only"`` or ``"none"``.
+    ``"LJ only"``, ``"Coulomb only"`` or ``"none"``, followed by any extra
+    per-pair terms of the ``.pcof`` file.
+
+    Rows read from a running engine (``result.potential.pair_params()``) also
+    have the per-pair terms of the ``.pcof`` file: ``coulfac`` (scale factor on
+    the Coulomb term), the extra repulsive core (``rminex``, ``pcoefex``,
+    ``coordex``; ``rmaxex``, ``pcoefexmax``) and additional Gaussian or
+    modified-Morse terms (``gaussians``, ``(position, width, height)``). Rows of
+    :meth:`System.pair_parameters` leave them ``None``.
     """
 
     types: tuple[str, str]
@@ -1179,22 +1187,53 @@ class PairParameters:
     sigma: float
     charge_product: float
     terms: str
+    coulfac: float | None = None
+    rminex: float | None = None
+    pcoefex: float | None = None
+    coordex: float | None = None
+    rmaxex: float | None = None
+    pcoefexmax: float | None = None
+    gaussians: tuple[tuple[float, float, float], ...] = ()
 
     @property
     def label(self) -> str:
         return f"{self.types[0]}-{self.types[1]}"
 
+    @property
+    def extras(self) -> str:
+        """The non-zero ``.pcof`` per-pair terms as text (``""`` if there are none)."""
+        values = [
+            f"{name} {value:g}"
+            for name in ("rminex", "pcoefex", "coordex", "rmaxex", "pcoefexmax")
+            if (value := getattr(self, name))
+        ]
+        if self.gaussians:
+            values.append(f"{len(self.gaussians)} additional term(s)")
+        return ", ".join(values)
+
     @staticmethod
-    def terms_of(epsilon: float, charge_product: float) -> str:
-        """``terms`` for a mixed epsilon and Coulomb prefactor."""
+    def terms_of(
+        epsilon: float,
+        charge_product: float,
+        *,
+        repulsive_core: bool = False,
+        n_additional: int = 0,
+    ) -> str:
+        """``terms`` for a mixed epsilon and (scaled) Coulomb prefactor."""
         lennard_jones, coulomb = epsilon > 0, charge_product != 0
         if lennard_jones and coulomb:
-            return "LJ + Coulomb"
-        if lennard_jones:
-            return "LJ only"
-        if coulomb:
-            return "Coulomb only"
-        return "none"
+            terms = "LJ + Coulomb"
+        elif lennard_jones:
+            terms = "LJ only"
+        elif coulomb:
+            terms = "Coulomb only"
+        else:
+            terms = "none"
+        if repulsive_core:
+            terms += " + repulsive core"
+        if n_additional:
+            terms += f" + {n_additional} additional"
+        return terms
 
 
 class PairTable(Sequence[PairParameters]):
@@ -1207,9 +1246,20 @@ class PairTable(Sequence[PairParameters]):
         ("1390*qi*qj", "charge_product"),
         ("terms", "terms"),
     )
+    #: Extra columns shown when the rows come from the engine.
+    ENGINE_COLUMNS: tuple[tuple[str, str], ...] = (
+        ("coulfac", "coulfac"),
+        (".pcof extras", "extras"),
+    )
 
     def __init__(self, rows: Iterable[PairParameters]) -> None:
         self._rows = list(rows)
+
+    @property
+    def columns(self) -> tuple[tuple[str, str], ...]:
+        """``(heading, attribute)`` of the printed columns."""
+        from_engine = any(row.coulfac is not None for row in self._rows)
+        return self.COLUMNS + (self.ENGINE_COLUMNS if from_engine else ())
 
     def __getitem__(self, index: Any) -> Any:
         if isinstance(index, (str, tuple)):
@@ -1238,17 +1288,17 @@ class PairTable(Sequence[PairParameters]):
         return str(value)
 
     def __str__(self) -> str:
-        table = [[heading for heading, _ in self.COLUMNS]]
+        columns = self.columns
+        table = [[heading for heading, _ in columns]]
         for row in self._rows:
             table.append(
                 [
                     self._cell(getattr(row, attribute), attribute)
-                    for _, attribute in self.COLUMNS
+                    for _, attribute in columns
                 ]
             )
         widths = [
-            max(len(line[column]) for line in table)
-            for column in range(len(self.COLUMNS))
+            max(len(line[column]) for line in table) for column in range(len(columns))
         ]
         return "\n".join(
             "  ".join(
@@ -1267,7 +1317,7 @@ class PairTable(Sequence[PairParameters]):
         pandas = import_optional("pandas", extra="pandas")
         return pandas.DataFrame(
             [
-                {attribute: getattr(row, attribute) for _, attribute in self.COLUMNS}
+                {attribute: getattr(row, attribute) for _, attribute in self.columns}
                 for row in self._rows
             ]
         )
