@@ -71,8 +71,8 @@ started without the user's agreement, even if it looks small.
 | C3 | `System`: `add` order = type order, `density` in atoms/Å³ (D6), `temperature`, engine limits, `pair_parameters()` with a `terms` column | 2 | WF §2 | the water table of §4.3; limit errors |  |
 | C4 | `NeutronSample`: isotopes as `{mass_number: fraction}` (D7), checked against the isotope table; per-sample `exchangeable` override; per-dataset keywords; `.mint01` validation | 3 | WF §3 | rendered `.NWTS.dat` → `nwts` → `.NWTStot.wts` identical to `validation/water`; bad isotopes raise |  |
 | C5 | `Settings`: the keyword table binding; EPSR names (D1); unknown keys rejected; routing to `.inp`/`.pcof`/data blocks; `.inp` rendering | 0, 4 | WF §4 | table round trip; `.inp` after the scratch run identical to the validated one | Phase 0 part done: `_core.epsr_keywords()` with file routing |
-| C6 | Typed setup tools: `makemole`, `mixato`, `randomise`, `fmole` (`.mol` handled), `nwts` from structured input | 1 | inside `create` | the water box rebuilt with these calls is identical to `validation/water` |  |
-| C7 | `seed=` (D3, §1.7): `set_rng_seed`; `None` = default | 0, 1 | WF §4 | the §1.7 table: default = seed 1, 42 reproducible and different, 0 rejected | Phase 0 part done: `_core.set_rng_seed`; §1.7 table reproduced |
+| C6 | Typed setup tools: `makemole`, `mixato`, `randomise`, `fmole` (`.mol` handled), `nwts` from structured input | 1 | inside `create` | the water box rebuilt with these calls is identical to `validation/water` | **done** (Phase 1): `tools.makemole/mixato/randomise/fmole/nwts(components=)`; water box and weights identical to the validated steps (`tests/test_setup_tools.py`) |
+| C7 | `seed=` (D3, §1.7): `set_rng_seed`; `None` = default | 0, 1 | WF §4 | the §1.7 table: default = seed 1, 42 reproducible and different, 0 rejected | Phases 0–1 done: `_core.set_rng_seed`, `tools.set_rng_seed`, `tools.randomise(seed=)`; §1.7 table reproduced. `Project.create(seed=)` in Phase 5 |
 | C8 | `Project.create`: steps 1–6 of §1.6, no EPSR run (D2), `epsr_project.json`, pending `.pcof` settings, rejects `ereq ≠ 0` | 5 | WF §4 | folder contents before the first run identical to the validated case at that step |  |
 | C9 | `equilibrate`: scratch start + (N − 1) on the first call (D2); `History` with both rows | 5 | WF §5 | `create` + `equilibrate(100)` identical to steps 7–8 of `validation/water` |  |
 | C10 | `refine(ereq=, runs=, iterations=, until=, callback=, snapshot_every=)` | 5 | WF §5 | full water schedule identical to `validation/water` |  |
@@ -116,6 +116,20 @@ started without the user's agreement, even if it looks small.
   - `pair_params()` is bound on `_core.Simulation` with Fortran names (`ecor`, `dcor`,
     `qcor`, `coulfac`, `rminex`, `pcoefex`, `coordex`, `rmaxex`, `pcoefexmax`,
     `gaussians`, `pcof_entry`); the readable Python layer comes in Phase 5.
+- **Phase 1 (2026-10-19).**
+  - The typed wrappers check that their output file was (re)written, because
+    `makemole`, `mixato` and others report failures on their log and return normally
+    (as the Fortran does). The error points to `verbose=True`.
+  - `tools.fmole` moves every `*.mol` of the folder into a temporary subfolder for the
+    run and puts it back (pitfall 6.2). Whether `Project.create` keeps the generated
+    `.mol` in the folder is decided in Phase 5.
+  - `tools.nwts(folder, "<sample>.NWTS.dat", box=, components=)` writes the input first.
+    Components use the `nwts` keyword names (D1); `abundances` may be
+    `{mass_number: fraction}`, rendered in the given order with whole numbers as
+    integers (`2 1`, `1 0.5 2 0.5`), which is the text `nwts` keeps. Validation is in
+    `tools.abundances_text` (≤ 5 isotopes, sum 1 ± 1e-6, mass numbers in the engine's
+    table for the element). The old `nwts(folder, dat_file)` call is unchanged, apart
+    from now returning the path of the `tot.wts` file.
 
 ### Out of scope until agreed with the user
 
