@@ -54,14 +54,60 @@ history = epsr.refine(project, n_runs=20) # refinement loop with convergence his
 epsr.tools.run(folder, "nwts", ["sample.NWTS.dat"])   # any of the 35 tools
 ```
 
-A new system is defined in Python (atom types, molecules, the box, neutron samples with their isotopes, EPSR settings) and built by EPSR's own setup programs, with no input file written by hand:
+A new system is defined in Python (atom types, molecules, the box, neutron samples with their isotopes, EPSR settings) and built by EPSR's own setup programs, with no input file written by hand.
+
+### The objects, and the EPSR files behind them
+
+EPSR itself is a set of programs that read and write files in one *simulation folder*. The Python objects describe what goes into those files, or give access to them:
+
+| Python object | what it describes | EPSR file(s) it becomes or reads |
+|---|---|---|
+| `AtomType` | one atom type: label, element, Lennard-Jones ε and σ, charge, mass, whether it is exchangeable | the `potential` lines of a `.mol` file; the atom-type table of the `.ato` |
+| `Molecule` | one molecule type: named atoms with positions, bonds, angles, rotations, restraint stiffness | `<molecule>.mol` → `makemole` → the one-molecule template `<molecule>.ato` |
+| `System` | the box: which molecules and how many, density (atoms/Å³), temperature | `mixato`, `randomise`, `fmole` → the box `<system>.ato` (configuration, restraints, random-number state) |
+| `NeutronSample` | one measured dataset and the isotopes of its sample | the data file (`.mint01`); `<sample>.NWTS.dat` → `nwts` → the weights `<sample>.NWTStot.wts` |
+| `Settings` | EPSR keyword values, with EPSR's own names (`ntimes`, `qmin`, `ereq`...) | the run-control file `<system>.EPSR.inp` and the potential file `<system>.pcof` |
+| `Project` | **the simulation folder itself**: builds it (`create`), runs EPSR on it (`equilibrate`, `refine`, `run`), changes its settings (`set`) and reads it (`results`, `status`, `history`) | every file in the folder, plus `epsr_project.json` (the definitions above) |
+| `Simulation` | one EPSR run on the folder, and the results it holds in memory: fits, partial g(r) and S(Q), potentials, the configuration | reads every input file; at the end of a run EPSR rewrites `.ato`, `.pcof`, `.EPSR.inp` and writes the results (`.EPSR.g01`, `.u01`, `.erg`...) |
+| `Summary`, `History` | the numbers of one run (R-factor, energy, pressure, EP amplitude); a table of them over many runs | `.EPSR.out`, `.EPSR.erg` |
+
+The folder holds the state: every EPSR run reads the files and rewrites them, so a refinement can always be continued, inspected or copied. The generated `.mol` files stay in the folder, so the molecules being simulated can be checked as EPSR sees them.
+
+### Anatomy of a typical script
 
 ```python
-system = epsr.System("waterbox", temperature=300.0, density=0.1).add(water, 1000)
+import epsr
+from epsr import AtomType, Molecule, NeutronSample, System
+
+# 1. What is simulated: atom types (reference potential), molecules, the box
+OW = AtomType("OW", element="O", epsilon=0.6503, sigma=3.165492, charge=-0.82,
+              coarse_grain={"rmax": 1.55})
+HW = AtomType("HW", element="H", epsilon=0.0, sigma=0.0, charge=0.41, mass=2.0,
+              exchangeable=True)
+water = Molecule.from_geometry("Water", centre=("O", OW),
+                               arms=[("H1", HW, 0.976), ("H2", HW, 0.976)], angle=107.134)
+system = System("waterbox", temperature=300.0, density=0.1).add(water, 1000)
+print(system.pair_parameters())                     # how every pair of atom types interacts
+
+# 2. What it is fitted to: one sample per measurement, with its isotopes
+samples = [NeutronSample("D2O", "data/SLS18502-D2O.mint01", isotopes={"HW": {2: 1.0}}),
+           NeutronSample("H2O", "data/SLS18498-H2O.mint01")]          # natural isotopes
+
+# 3. Build the simulation folder (EPSR's setup programs; nothing runs yet)
 project = epsr.Project.create("work/water", system, samples, settings={"rshmin": 0.7})
-project.equilibrate(iterations=100)                  # scratch start + 99
-project.refine(ereq=3.0, runs=2, iterations=100)     # byte-identical to validation/water
+
+# 4. Run: equilibrate on the reference potential, then refine with the empirical potential
+project.equilibrate(iterations=100)                 # scratch start + 99 iterations
+history = project.refine(ereq=3.0, runs=2, iterations=100)
+
+# 5. Read the results
+result = project.results()                          # a Simulation over the finished folder
+result.fit("D2O")                                   # data and simulated F(Q) of one sample
+result.gr_inter("OW", "HW")                         # an intermolecular partial g(r)
+epsr.analysis.first_peak(result.r, result.gr_inter("OW", "OW"), (2.0, 4.0))
 ```
+
+With the three SANDALS samples this script is [example 07](python/examples/07_water_from_scratch/water_from_scratch.py), and its folder is byte-identical to the validated water calculation.
 
 `epsr.vis` records every iteration and draws convergence plots, F(Q) fits and residual maps, partials, empirical potentials, coordination numbers, bond angles and 3D configurations. Examples 05–07 refine water and silica against real data.
 
