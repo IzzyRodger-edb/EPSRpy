@@ -163,7 +163,86 @@ The port was developed against the supplied DMSO/water test case. To show that i
 | silica | 1500 Si + 3000 O, amorphous | NIMROD | 2.3 × 10⁻⁴ |
 | Cu-BTC (HKUST-1) | 624-atom MOF unit cell, with Bragg peaks | NIMROD | 1.6 × 10⁻² |
 
-All three codes agree at every step. The overlay plots for [water](validation/water/gr_agreement.png), [silica](validation/silica_bulk/gr_agreement.png) and [Cu-BTC](validation/cu-btc/gr_agreement.png) show zero difference for every pair. The measured data are in [`experimental_data/`](experimental_data/README.md).
+Run on the same machine, the three codes agree at every step. The overlay plots for [water](validation/water/gr_agreement.png), [silica](validation/silica_bulk/gr_agreement.png) and [Cu-BTC](validation/cu-btc/gr_agreement.png) show zero difference for every pair. The archived Fortran reference of Cu-BTC was made on another machine, and agrees only to the last digits (see the Cu-BTC example below). The measured data are in [`experimental_data/`](experimental_data/README.md).
+
+### The three examples, set up in Python
+
+Each system is defined with the Python setup API (`AtomType`, `Molecule` or `Framework`, `System`, `NeutronSample`, `Project`), with no EPSR input file written by hand. The figures show each system as EPSR starts it: the initial configuration the Monte Carlo starts from (a slab through the box), the reference potential the engine uses for some of the atom-type pairs, and the measured data being fitted. They are made by [`docs/figures/make_example_figures.py`](docs/figures/make_example_figures.py) from the same definitions.
+
+#### Water: 1000 H₂O against three SANDALS isotopic samples
+
+```python
+import epsr
+from epsr import AtomType, Molecule, NeutronSample, System
+
+OW = AtomType("OW", element="O", epsilon=0.6503, sigma=3.165492, charge=-0.82,
+              coarse_grain={"rmax": 1.55})
+HW = AtomType("HW", element="H", epsilon=0.0, sigma=0.0, charge=0.41, mass=2.0,
+              exchangeable=True)
+water = Molecule.from_geometry("Water", centre=("O", OW),
+                               arms=[("H1", HW, 0.976), ("H2", HW, 0.976)], angle=107.134)
+system = System("waterbox", temperature=300.0, density=0.1).add(water, 1000)
+
+data = "experimental_data/water/data"
+samples = [NeutronSample("D2O", f"{data}/SLS18502-D2O.mint01", isotopes={"HW": {2: 1.0}}),
+           NeutronSample("HDO", f"{data}/SLS18500-HDO5050.mint01", isotopes={"HW": {1: 0.5, 2: 0.5}}),
+           NeutronSample("H2O", f"{data}/SLS18498-H2O.mint01")]
+
+project = epsr.Project.create("work/water", system, samples, settings={"rshmin": 0.7})
+project.equilibrate(iterations=100)                # scratch start + 99 on the reference potential
+project.refine(ereq=3.0, runs=2, iterations=100)   # empirical potential, 3 kJ/mol
+```
+
+![Water: initial configuration, reference potential of the three pairs, and the three measured F(Q)](docs/figures/water.png)
+
+The complete script is [example 07](python/examples/07_water_from_scratch/water_from_scratch.py). **Validation:** the folder the API builds before the first EPSR run, and the folder after a shortened schedule, are byte-identical to the validated `validation/water/steps.txt` calculation (`tests/test_project_setup.py`). The full schedule's `epsr_run/` is identical to the committed example output (`tests/test_example_07.py`), and that output is identical to the original Fortran EPSR run on the same steps on this machine. The exceptions are the date line of `.out` and the `.qdr` trend file, which every reading of a folder rewrites.
+
+#### Amorphous silica: 1500 Si + 3000 O against NIMROD data
+
+```python
+SI = AtomType("Si", element="Si", epsilon=0.175, sigma=1.03, charge=2.0, coarse_grain={"rmax": 1.11})
+OX = AtomType("O", element="O", epsilon=0.165, sigma=3.5, charge=-1.0, coarse_grain={"rmax": 1.55})
+system = System("silica", temperature=298.0, density=0.0664)
+system.add(Molecule.atom(SI), 1500).add(Molecule.atom(OX), 3000)   # single-atom "molecules"
+
+samples = [NeutronSample("SiO2", "experimental_data/silica_bulk/data/SiO2_NIMROD.mint01")]
+project = epsr.Project.create("work/silica", system, samples,
+                              settings={"qmin": (0.1, 0.0), "rshmin": 1.2})
+project.equilibrate(iterations=100)                # no fmole: every molecule is one atom
+project.refine(ereq=50.0, runs=2, iterations=100)
+```
+
+![Silica: initial configuration, reference potential of the three pairs, and the measured F(Q)](docs/figures/silica.png)
+
+**Validation:** the folder before the first EPSR run is byte-identical to the validated `validation/silica_bulk/steps.txt` setup (`tests/test_project_setup.py`). After the full schedule, every file is byte-identical to the original Fortran EPSR's folder for the same steps on this machine (run on 2026-10-20; the API's `epsr_project.json` is the only extra file). [Example 06](python/examples/06_experimental_SiO2.py) runs the same calculation with the lower-level calls.
+
+#### Cu-BTC (HKUST-1): a crystal from a PDB file, with Bragg peaks
+
+```python
+from epsr import Framework
+
+types = [AtomType("CU", element="Cu", epsilon=0.02092, sigma=3.144, charge=1.098),
+         AtomType("O", element="O", epsilon=0.401664, sigma=3.033, charge=-0.665),
+         AtomType("C1", element="C", epsilon=0.39748, sigma=3.473, charge=0.778),
+         AtomType("C2", element="C", epsilon=0.39748, sigma=3.473, charge=-0.092),
+         AtomType("C3", element="C", epsilon=0.39748, sigma=3.473, charge=-0.014),
+         AtomType("H", element="H", epsilon=0.06276, sigma=2.846, charge=0.109, mass=1.008)]
+framework = Framework.from_pdb("validation/cu-btc/CuBTC.pdb", types, vdw_factor=0.68)
+system = System("CuBTC", temperature=300.0, structure=framework)   # density from the unit cell
+system.monte_carlo(tol=0.0, stepmi=0.1, stepri=0.3, stepr=0.3, stepm=1.0)
+
+samples = [NeutronSample("CuBTC", "experimental_data/cu-btc/data/Empty-CuBTC.mint01")]
+project = epsr.Project.create("work/cubtc", system, samples, settings={
+    "qwidthqmax": (0.2, 5.0), "hklqmin": (0.0, 10.0, 0.0), "qmin": (0.05, 0.0), "rshmin": 0.7})
+project.equilibrate(iterations=100)                # readpdb -> changeato -> nwts; crystal positions kept
+project.refine(ereq=10.0, runs=2, iterations=100)
+```
+
+![Cu-BTC: a slab of the unit cell, reference potential of three pairs, and the measured F(Q) with its Bragg peaks](docs/figures/cu_btc.png)
+
+The complete script is [example 08](python/examples/08_cu_btc/cu_btc.py). **Validation:** the box after `readpdb` and after `changeato`, and the folder before the first EPSR run, are byte-identical to the validated `validation/cu-btc/steps.txt` calculation. After each of the four EPSR runs, every file is byte-identical to the same steps run by the earlier Python wrapper route, and to the `epsr-rs` CLI after the full schedule (`tests/test_framework.py`). EPSR enumerates the expected 80 726 Bragg reflections at 940 unique Q values.
+
+**Python and CLI agree; the archived Fortran reference does not, in the last digits.** Against `validation/cu-btc/fortran_reference.tar.gz`, the reference-potential table `.o01` differs in its 7th significant digit from the first iteration on. The Monte Carlo then carries this into the last digits of `.erg`, `.inpa`, `.out` and `fort.35`. After the third EPSR run, one pressure in `.out` differs by one unit in its last digit (0.787812E+01 against 0.787813E+01), which fails the comparison. Every other file, including the configuration, the g(r), the F(Q) and the Bragg files, is identical. The Fortran built on this machine gives exactly the Rust and Python results at every step, so the archive (made on another machine) is a platform-specific reference: most likely a different libm rounding of single-precision `powf`/`expf`, the effect `python/docs/testing.md` already documents for the EPSR-test `.o01`. [`docs/plans/cu_btc_fortran_discrepancy.md`](docs/plans/cu_btc_fortran_discrepancy.md) is the briefing for resolving it: the evidence, a hypothesis, how to test it, and the options.
 
 The figures below come from the water case: 1000 water molecules fitted to three SANDALS measurements, starting from a random box.
 

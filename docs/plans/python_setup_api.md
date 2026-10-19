@@ -93,7 +93,7 @@ started without the user's agreement, even if it looks small.
 | C20 | `Framework.from_pdb`: a structure from a PDB file through `readpdb` (bond detection by vdW factor, optional `DIH` groups), with the `vanderWaalsRadii.txt` shipped by the package and a check of the label order | 7a | `.ato` after `readpdb` identical to the validated run | **done** (Phase 7a): `Framework.from_pdb`, `tools.readpdb`, package `vanderWaalsRadii.txt`; `.ato` after `readpdb` identical (`tests/test_framework.py`) |
 | C21 | Force field and Monte Carlo parameters applied to an existing configuration, through `changeato` (per-type ε/σ/charge/mass; `temp`, `tol`, step sizes), using EPSR's `changeato` keyword names (D1) | 7a | `.ato` after `changeato` identical to the validated run | **done** (Phase 7a): `System.monte_carlo`, `tools.changeato(_commands)`; commands equal `changeato.stdin`, `.ato` identical (`tests/test_framework.py`) |
 | C22 | Bragg settings as `Settings` with tuple values (`qwidthqmax`, `hklqmin`, `mplicities`); results readers for `.bragg` and `.inten` (`epsr.io`) | 7a | 80 726 reflections at 940 unique Q, as in `validation/cu-btc/README.md` | **done** (Phase 7a): tuple settings; `epsr.io.read_bragg`, `read_inten`; 80 726 reflections at 940 unique Q (`tests/test_framework.py`) |
-| C23 | Example 08 (Cu-BTC) in the new syntax | 7a | every file byte-identical to `validation/cu-btc/fortran_reference.tar.gz` after each EPSR run | **done, with one open point** (Phase 7a): example 08; byte-identical to the validated steps (wrapper and `epsr-rs` CLI) after every run, but on this machine the engine agrees with the Fortran archive only to the last digits; see *Decisions (Phase 7a)* in §8.2 |
+| C23 | Example 08 (Cu-BTC) in the new syntax | 7a | every file byte-identical to `validation/cu-btc/fortran_reference.tar.gz` after each EPSR run | **done, with one open point** (Phase 7a): example 08; byte-identical to the validated steps (wrapper, CLI) and to the Fortran built on this machine after every run; the archive, made on another machine, agrees only to the last digits; see `docs/plans/cu_btc_fortran_discrepancy.md` |
 
 ### Implementation notes (settled while implementing)
 
@@ -1210,7 +1210,11 @@ section:
   difference is the engine's on this platform, not the Python layer's.
   `tests/test_framework.py` requires byte-identity with the validated steps run by
   the wrapper after every EPSR run, and the Fortran comparison as `test_cu_btc.py`
-  does.
+  does. **Diagnosed 2026-10-20:** the Fortran built on this machine
+  (`~/epsr-work/fortran-build`) gives files byte-identical to the Rust engine after
+  every EPSR run, and differs from the archive exactly as Rust does; the archive was
+  made on another machine. Briefing for the fix:
+  [cu_btc_fortran_discrepancy.md](cu_btc_fortran_discrepancy.md).
 - The wireframe's `"qmin": 0.05` is written `(0.05, 0.0)` in example 08, the values of
   the validated input.
 
