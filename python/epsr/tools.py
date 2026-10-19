@@ -58,12 +58,14 @@ __all__ = [
     "ToolKeyword",
     "ToolKeywords",
     "write_keyword_file",
+    "render_keyword_file",
     "makemole",
     "mixato",
     "randomise",
     "set_rng_seed",
     "fmole",
     "nwts",
+    "render_nwts",
     "isotopes",
     "abundances_text",
     "xwts",
@@ -230,25 +232,23 @@ def _check_keywords(given: Mapping[str, Any], allowed: list[str], what: str) -> 
         raise ValueError(f"unknown {what} {sorted(unknown)}; valid: {allowed}")
 
 
-def write_keyword_file(
-    path: str | PathLike[str],
+def render_keyword_file(
     command: str,
     values: Mapping[str, Any],
     blocks: Sequence[Mapping[str, Any]] | None = None,
     *,
-    title: str | None = None,
-) -> Path:
-    """Write a keyword input file for a keyword-file program.
+    title: str,
+) -> str:
+    """The text of a keyword input file for a keyword-file program.
 
     ``values`` sets global keywords; keywords not given take the table
     defaults. ``blocks`` gives one mapping per repeated block (``component``
     for ``nwts``, ...); keywords missing in a block take the defaults. Without
     ``blocks`` no block section is written, and programs that derive their
     blocks from another file (``nwts`` from the ``.ato`` file) fill them in.
-    The file uses the layout EPSR writes (keyword, value, description, ``q``);
-    the program rewrites it on exit.
+    The text uses the layout EPSR writes (title, keyword, value, description,
+    ``q``). See :func:`write_keyword_file`.
     """
-    path = Path(path)
     table = keywords(command)
     blocks = list(blocks or [])
     _check_keywords(values, table.global_keywords, f"{command} keywords")
@@ -256,13 +256,6 @@ def write_keyword_file(
         raise ValueError(f"{command} input files have no repeated blocks")
     for block in blocks:
         _check_keywords(block, table.block_keywords, f"{command} block keywords")
-
-    if title is None:
-        title = (
-            path.name.removesuffix(table.extinp)
-            if path.name.endswith(table.extinp)
-            else path.stem
-        )
     defaults = table.defaults()
     descriptions = table.descriptions()
 
@@ -280,7 +273,34 @@ def write_keyword_file(
         for keyword in table.block_keywords:
             lines.append(keyword_line(keyword, block.get(keyword, defaults[keyword])))
     lines.append("q")
-    path.write_text("\n".join(lines) + "\n", encoding="latin-1")
+    return "\n".join(lines) + "\n"
+
+
+def write_keyword_file(
+    path: str | PathLike[str],
+    command: str,
+    values: Mapping[str, Any],
+    blocks: Sequence[Mapping[str, Any]] | None = None,
+    *,
+    title: str | None = None,
+) -> Path:
+    """Write a keyword input file for a keyword-file program.
+
+    See :func:`render_keyword_file` for ``values`` and ``blocks``. The title
+    defaults to the file name without the program's extension. The program
+    rewrites the file on exit.
+    """
+    path = Path(path)
+    if title is None:
+        extension = keywords(command).extinp
+        title = (
+            path.name.removesuffix(extension)
+            if path.name.endswith(extension)
+            else path.stem
+        )
+    path.write_text(
+        render_keyword_file(command, values, blocks, title=title), encoding="latin-1"
+    )
     return path
 
 
@@ -549,6 +569,26 @@ def _nwts_component(component: Mapping[str, Any]) -> dict[str, Any]:
     return block
 
 
+def render_nwts(sample: str, box: str, components: Sequence[Mapping[str, Any]]) -> str:
+    """The ``<sample>.NWTS.dat`` text for a one-sample neutron measurement.
+
+    ``components`` as for :func:`nwts`: one mapping per atom type of the box
+    ``<box>.ato``, in box order.
+    """
+    if not components:
+        raise ValueError("nwts: no components")
+    return render_keyword_file(
+        "nwts",
+        {
+            "fnameato": f"{_base_name(box, '.ato')}.ato",
+            "nsamples": 1,
+            "ncomponent": len(components),
+        },
+        [_nwts_component(component) for component in components],
+        title=f"{_base_name(sample, '.NWTS.dat')}.NWTS",
+    )
+
+
 def nwts(
     folder: str | PathLike[str],
     dat_file: str,
@@ -580,25 +620,15 @@ def nwts(
         return weights_file
 
     extension = keywords("nwts").extinp
-    sample = _base_name(dat_file, extension)
     if not dat_file.endswith(extension):
         raise ValueError(
             f"nwts: write the input as <sample>{extension}, got {dat_file!r}"
         )
     if box is None:
         raise ValueError("nwts: pass box= with components=")
-    if not components:
-        raise ValueError("nwts: no components")
-    write_keyword_file(
-        folder / dat_file,
-        "nwts",
-        {
-            "fnameato": f"{_base_name(box, '.ato')}.ato",
-            "nsamples": 1,
-            "ncomponent": len(components),
-        },
-        [_nwts_component(component) for component in components],
-        title=f"{sample}.NWTS",
+    sample = _base_name(dat_file, extension)
+    (folder / dat_file).write_text(
+        render_nwts(sample, box, components), encoding="latin-1"
     )
     time_before = _modification_time(weights_file)
     _run_keyword_tool("nwts", folder, dat_file, verbose)

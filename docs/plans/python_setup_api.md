@@ -69,7 +69,7 @@ started without the user's agreement, even if it looks small.
 | C1 | `AtomType`: ε, σ, charge, mass (default by element), `exchangeable` (D5), `coarse_grain`; label ≤ 3 chars; docstring states the §1.8 mixing rules | 2 | WF §1 | unit tests for validation; water `.ato` type table identical | **done** (Phase 2): `epsr.system.AtomType`; `tests/test_system.py` |
 | C2 | `Molecule`: named atoms + bonds/angles/rotations by name or index (D4); `vibtemp`/`angtemp`/`dihtemp`; `render_mol`; `from_geometry`, `from_xyz`, `from_mol`, `from_ato`, `Molecule.atom`; rejects dihedrals | 2 | WF §1 | `makemole` on the rendered water and silica `.mol` gives `.ato` files identical to `validation/` | **done** (Phase 2): water and silica `.mol` byte-identical to `validation/`, same templates from `makemole`; `from_mol` round trips; `from_ato` approximate (see notes) |
 | C3 | `System`: `add` order = type order, `density` in atoms/Å³ (D6), `temperature`, engine limits, `pair_parameters()` with a `terms` column | 2 | WF §2 | the water table of §4.3; limit errors | **done** (Phase 2): `System`, `pair_parameters()` → `PairTable` (printable, `to_dataframe()`) |
-| C4 | `NeutronSample`: isotopes as `{mass_number: fraction}` (D7), checked against the isotope table; per-sample `exchangeable` override; per-dataset keywords; `.mint01` validation | 3 | WF §3 | rendered `.NWTS.dat` → `nwts` → `.NWTStot.wts` identical to `validation/water`; bad isotopes raise |  |
+| C4 | `NeutronSample`: isotopes as `{mass_number: fraction}` (D7), checked against the isotope table; per-sample `exchangeable` override; per-dataset keywords; `.mint01` validation | 3 | WF §3 | rendered `.NWTS.dat` → `nwts` → `.NWTStot.wts` identical to `validation/water`; bad isotopes raise | **done** (Phase 3): `epsr.samples.NeutronSample`, `epsr.io.read_mint01`; water and silica weights identical to `validation/` (`tests/test_samples.py`) |
 | C5 | `Settings`: the keyword table binding; EPSR names (D1); unknown keys rejected; routing to `.inp`/`.pcof`/data blocks; `.inp` rendering | 0, 4 | WF §4 | table round trip; `.inp` after the scratch run identical to the validated one | Phase 0 part done: `_core.epsr_keywords()` with file routing |
 | C6 | Typed setup tools: `makemole`, `mixato`, `randomise`, `fmole` (`.mol` handled), `nwts` from structured input | 1 | inside `create` | the water box rebuilt with these calls is identical to `validation/water` | **done** (Phase 1): `tools.makemole/mixato/randomise/fmole/nwts(components=)`; water box and weights identical to the validated steps (`tests/test_setup_tools.py`) |
 | C7 | `seed=` (D3, §1.7): `set_rng_seed`; `None` = default | 0, 1 | WF §4 | the §1.7 table: default = seed 1, 42 reproducible and different, 0 rejected | Phases 0–1 done: `_core.set_rng_seed`, `tools.set_rng_seed`, `tools.randomise(seed=)`; §1.7 table reproduced. `Project.create(seed=)` in Phase 5 |
@@ -162,6 +162,21 @@ started without the user's agreement, even if it looks small.
     a measured angle of 107.13424°. `from_geometry` reproduces example 07 exactly; the
     rewritten example must not claim that the explicit form gives the same box.
   - `System(box=...)` raises `EpsrUnsupportedError` (cubic only).
+- **Phase 3 (2026-10-19).**
+  - **When isotopes are checked:** on creation, a `NeutronSample` only knows type
+    labels, not elements, so it checks the structure (int mass numbers, ≤ 5 isotopes,
+    fractions in [0, 1] summing to 1). The element-specific check against the Sears
+    table (and that every label is a type of the system) is `sample.check(system)`,
+    which `nwts_components`/`render_nwts` and `Project.create` call before any EPSR
+    program runs.
+  - `exchangeable=[...]` on a sample *replaces* the types' own flags for that sample;
+    `exchangeable=[]` switches exchange off.
+  - `read_mint01` lives in `epsr.io` (refuses non-numeric rows, < 10 or > 5000 rows,
+    all-zero data). The "data beyond `nq × qstep`" check is a note
+    (`sample.notes(q_max)`), not an error or warning: every validated dataset extends
+    to ~50 Å⁻¹ beyond the default 30 Å⁻¹, and EPSR simply ignores the rest.
+  - `tools.render_keyword_file` / `tools.render_nwts` give the text without writing a
+    file; `write_keyword_file` and `nwts(components=)` use them.
 
 ### Out of scope until agreed with the user
 

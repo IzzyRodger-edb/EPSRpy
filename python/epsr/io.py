@@ -24,7 +24,10 @@ __all__ = [
     "read_table_series",
     "read_erg",
     "read_keyword_file",
+    "Mint01",
+    "read_mint01",
     "ERG_COLUMNS",
+    "MAX_DATA_POINTS",
 ]
 
 FloatArray = npt.NDArray[np.float64]
@@ -284,6 +287,108 @@ def read_keyword_file(path: str | PathLike[str]) -> KeywordFile:
         descriptions=descriptions,
         trailer=trailer,
     )
+
+
+#: Most data points EPSR reads from one data file (``MQD`` in ``state.rs``).
+MAX_DATA_POINTS = 5000
+#: Fewer rows than this and the file is taken for something else than a ``.mint01``.
+MIN_DATA_POINTS = 10
+
+
+@dataclass(frozen=True)
+class Mint01:
+    """A Gudrun ``.mint01`` file: interference differential cross section F(Q).
+
+    Header lines start with ``#``; the second is the sample title. The data are
+    three columns, Q (Å⁻¹), F(Q) and its error. EPSR (``nrtype 5``) treats each Q
+    as a histogram bin edge, replaces it by the midpoint to the next one and drops
+    the last row, which is why Gudrun ends the table with a row of zeros.
+    """
+
+    path: Path
+    header: tuple[str, ...]
+    q: FloatArray
+    f: FloatArray
+    errors: FloatArray
+
+    @property
+    def title(self) -> str:
+        """The sample title (second header line, else the first, else the file name)."""
+        if len(self.header) > 1 and self.header[1]:
+            return self.header[1]
+        return self.header[0] if self.header else self.path.name
+
+    @property
+    def n_points(self) -> int:
+        return len(self.q)
+
+    @property
+    def valid(self) -> npt.NDArray[np.bool_]:
+        """Rows that carry data (not the zero padding at the end)."""
+        return ~((self.f == 0.0) & (self.errors == 0.0))
+
+    @property
+    def q_range(self) -> tuple[float, float]:
+        """Lowest and highest Q of the rows with data."""
+        q = self.q[self.valid]
+        return float(np.min(q)), float(np.max(q))
+
+    def warnings(self) -> list[str]:
+        """Things EPSR will do with this file that may surprise (nothing is wrong)."""
+        notes = []
+        if np.any(np.diff(self.q) <= 0):
+            notes.append(
+                "Q is not strictly increasing; EPSR expects ascending bin edges"
+            )
+        if self.f[-1] != 0.0 or self.errors[-1] != 0.0:
+            notes.append(
+                "the last row is not a zero row; EPSR treats Q as bin edges and drops "
+                "the last point"
+            )
+        return notes
+
+
+def read_mint01(path: str | PathLike[str]) -> Mint01:
+    """Read a ``.mint01`` file, refusing anything EPSR could not use.
+
+    Raises ``ValueError`` when the file has rows that are not three numbers, fewer
+    than 10 rows, more than :data:`MAX_DATA_POINTS` rows (EPSR's ``MQD``) or only
+    zero rows; ``FileNotFoundError`` when it does not exist.
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"data file {path} does not exist")
+    header: list[str] = []
+    rows: list[tuple[float, float, float]] = []
+    for number, line in enumerate(path.read_text(encoding="latin-1").splitlines(), 1):
+        words = line.split()
+        if not words:
+            continue
+        if words[0].startswith("#"):
+            if not rows:
+                header.append(line.strip().lstrip("#").strip())
+            continue
+        try:
+            values = [float(word.replace("D", "E").replace("d", "e")) for word in words]
+        except ValueError:
+            values = []
+        if len(values) != 3:
+            raise ValueError(
+                f"{path.name}, line {number}: expected three numbers (Q, F(Q), error), "
+                f"got {line.strip()!r}"
+            )
+        rows.append((values[0], values[1], values[2]))
+    if len(rows) < MIN_DATA_POINTS:
+        raise ValueError(f"{path.name}: only {len(rows)} data rows; not a .mint01 file")
+    if len(rows) > MAX_DATA_POINTS:
+        raise ValueError(
+            f"{path.name}: {len(rows)} data points; EPSR reads at most {MAX_DATA_POINTS}"
+        )
+    table = np.array(rows, dtype=float)
+    data = Mint01(path, tuple(header), table[:, 0], table[:, 1], table[:, 2])
+    if not data.valid.any():
+        raise ValueError(f"{path.name}: every row is zero; there is nothing to fit")
+    return data
 
 
 def import_optional(module_name: str, extra: str) -> Any:

@@ -19,7 +19,7 @@ See ``python/docs/`` for the user guide and API reference.
 
 from __future__ import annotations
 
-from . import io, plot, system, tools
+from . import io, plot, samples, system, tools
 from ._core import VERSION_DATE
 from ._core import __version__ as __version__
 from .errors import EpsrError, EpsrInputError, EpsrIOError, EpsrUnsupportedError
@@ -27,6 +27,7 @@ from .io import read_erg, read_keyword_file, read_table
 from .potential import Potential, PotParams, TypeParams
 from .project import Project, copy_folder
 from .refine import History, refine, refine_many
+from .samples import NeutronSample
 from .simulation import Control, Dataset, Fit, Simulation, Summary, render_overrides
 from .system import AtomType, Molecule, System
 
@@ -42,6 +43,7 @@ __all__ = [
     "Fit",
     "History",
     "Molecule",
+    "NeutronSample",
     "PotParams",
     "Potential",
     "Project",
@@ -58,6 +60,7 @@ __all__ = [
     "refine",
     "refine_many",
     "render_overrides",
+    "samples",
     "system",
     "tools",
 ]
