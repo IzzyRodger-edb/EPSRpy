@@ -26,11 +26,9 @@ import sys
 from pathlib import Path
 
 import epsr
-from epsr import tools
+from epsr import tools, vis
 
-from epsr import (
-    vis,
-)  # vis.available(): False without the 'plot' extra (matplotlib, scipy)
+# vis.available() is False without the 'plot' extra (matplotlib, scipy)
 
 EXAMPLES_FOLDER = Path(__file__).resolve().parent
 REPOSITORY = EXAMPLES_FOLDER.parents[1]
