@@ -46,6 +46,13 @@ Fortran did not also fail the test.
 | `test_examples.py` | the six example scripts run (the long ones in their short mode, without the 3D image) |
 | `test_plot.py` | the plotting helpers draw |
 | `test_vis.py` | `epsr.vis`: a recorded run or refinement leaves every file identical to an unrecorded one; per-iteration R-factors equal EPSR's; the report and save/load work |
+| `test_core_accessors.py` | the setup API's engine accessors: keyword table and its file routing, isotope table, `set_rng_seed` (the seed table of the plan, §1.7), pair parameters (Lorentz–Berthelot, EPSR-test-ex1 `.pcof` extras) |
+| `test_setup_tools.py` | the typed setup wrappers (`makemole`, `mixato`, `randomise(seed=)`, `fmole`, `nwts(components=)`): the water box and weights identical to the validated steps and the committed run |
+| `test_system.py` | `AtomType`, `Molecule`, `System`: water and silica `.mol` byte-identical to `validation/`, same `makemole` templates, `from_mol`/`from_ato`/`from_xyz`, pair parameters, validation |
+| `test_samples.py` | `NeutronSample` and `read_mint01`: weights identical to `validation/water` and silica, isotope checks |
+| `test_settings.py` | `Settings` and the `.EPSR.inp`: the scratch run from the rendered input equals the validated one, every file |
+| `test_project_setup.py` | `Project.create`, `equilibrate`, `refine`, `run`, `set`, `settings`, `status`, `results`, datasets by name, `pair_params`, `epsr.analysis`, `epsr.vis.available()`; the setup and a short schedule identical to the validated steps; the slow test runs the full water schedule against the committed run |
+| `test_example_07.py` | slow: example 07 (written with the setup API) gives an `epsr_run/` byte-identical to the committed one |
 | `test_experimental_data.py` | water and silica built from scratch and refined against real neutron data; see the next section |
 | `test_cu_btc.py` | the Cu-BTC crystal read from a PDB file, refined with Bragg peaks against real neutron data, compared with the archived Fortran results after every EPSR run; see the next section |
 

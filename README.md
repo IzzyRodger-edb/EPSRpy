@@ -54,6 +54,15 @@ history = epsr.refine(project, n_runs=20) # refinement loop with convergence his
 epsr.tools.run(folder, "nwts", ["sample.NWTS.dat"])   # any of the 35 tools
 ```
 
+A new system is defined in Python (atom types, molecules, the box, neutron samples with their isotopes, EPSR settings) and built by EPSR's own setup programs, with no input file written by hand:
+
+```python
+system = epsr.System("waterbox", temperature=300.0, density=0.1).add(water, 1000)
+project = epsr.Project.create("work/water", system, samples, settings={"rshmin": 0.7})
+project.equilibrate(iterations=100)                  # scratch start + 99
+project.refine(ereq=3.0, runs=2, iterations=100)     # byte-identical to validation/water
+```
+
 `epsr.vis` records every iteration and draws convergence plots, F(Q) fits and residual maps, partials, empirical potentials, coordination numbers, bond angles and 3D configurations. Examples 05–07 refine water and silica against real data.
 
 Documentation: [user guide](python/docs/user_guide.md), [API reference](python/docs/api.md), [architecture](python/docs/architecture.md), [testing](python/docs/testing.md).
