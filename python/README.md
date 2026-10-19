@@ -164,4 +164,4 @@ Add `--no-3d` to skip the 3D image, e.g. on a machine without OpenGL.
 * [docs/user_guide.md](docs/user_guide.md): setting up a system from Python, the workflow, overrides and settings, perturbing the potential, tools, plotting and `epsr.vis`, parallel runs.
 * [docs/api.md](docs/api.md): every public class and function.
 * [docs/architecture.md](docs/architecture.md) and [docs/testing.md](docs/testing.md): how the wrapper is built and verified.
-* [examples/](examples): `01` to `04` show a single run, a refinement loop, potential perturbation and the tools on the DMSO/water test case; `07_water_from_scratch` sets up water entirely in Python.
+* [examples/](examples): `01` to `04` show a single run, a refinement loop, potential perturbation and the tools on the DMSO/water test case; `07_water_from_scratch` sets up water entirely in Python, and `08_cu_btc` a crystal read from a PDB file.

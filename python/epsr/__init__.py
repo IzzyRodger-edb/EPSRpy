@@ -33,7 +33,7 @@ from .refine import History, refine, refine_many
 from .samples import NeutronSample
 from .settings import Settings, keywords
 from .simulation import Control, Dataset, Fit, Simulation, Summary, render_overrides
-from .system import AtomType, Molecule, System
+from .system import AtomType, Framework, Molecule, System
 
 __all__ = [
     "VERSION_DATE",
@@ -46,6 +46,7 @@ __all__ = [
     "EpsrInputError",
     "EpsrUnsupportedError",
     "Fit",
+    "Framework",
     "History",
     "Molecule",
     "NeutronSample",

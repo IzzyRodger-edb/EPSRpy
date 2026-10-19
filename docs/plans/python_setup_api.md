@@ -90,10 +90,10 @@ started without the user's agreement, even if it looks small.
 
 | id | capability | phase | acceptance | status |
 |---|---|---|---|---|
-| C20 | `Framework.from_pdb`: a structure from a PDB file through `readpdb` (bond detection by vdW factor, optional `DIH` groups), with the `vanderWaalsRadii.txt` shipped by the package and a check of the label order | 7a | `.ato` after `readpdb` identical to the validated run |  |
-| C21 | Force field and Monte Carlo parameters applied to an existing configuration, through `changeato` (per-type ε/σ/charge/mass; `temp`, `tol`, step sizes), using EPSR's `changeato` keyword names (D1) | 7a | `.ato` after `changeato` identical to the validated run |  |
-| C22 | Bragg settings as `Settings` with tuple values (`qwidthqmax`, `hklqmin`, `mplicities`); results readers for `.bragg` and `.inten` (`epsr.io`) | 7a | 80 726 reflections at 940 unique Q, as in `validation/cu-btc/README.md` |  |
-| C23 | Example 08 (Cu-BTC) in the new syntax | 7a | every file byte-identical to `validation/cu-btc/fortran_reference.tar.gz` after each EPSR run |  |
+| C20 | `Framework.from_pdb`: a structure from a PDB file through `readpdb` (bond detection by vdW factor, optional `DIH` groups), with the `vanderWaalsRadii.txt` shipped by the package and a check of the label order | 7a | `.ato` after `readpdb` identical to the validated run | **done** (Phase 7a): `Framework.from_pdb`, `tools.readpdb`, package `vanderWaalsRadii.txt`; `.ato` after `readpdb` identical (`tests/test_framework.py`) |
+| C21 | Force field and Monte Carlo parameters applied to an existing configuration, through `changeato` (per-type ε/σ/charge/mass; `temp`, `tol`, step sizes), using EPSR's `changeato` keyword names (D1) | 7a | `.ato` after `changeato` identical to the validated run | **done** (Phase 7a): `System.monte_carlo`, `tools.changeato(_commands)`; commands equal `changeato.stdin`, `.ato` identical (`tests/test_framework.py`) |
+| C22 | Bragg settings as `Settings` with tuple values (`qwidthqmax`, `hklqmin`, `mplicities`); results readers for `.bragg` and `.inten` (`epsr.io`) | 7a | 80 726 reflections at 940 unique Q, as in `validation/cu-btc/README.md` | **done** (Phase 7a): tuple settings; `epsr.io.read_bragg`, `read_inten`; 80 726 reflections at 940 unique Q (`tests/test_framework.py`) |
+| C23 | Example 08 (Cu-BTC) in the new syntax | 7a | every file byte-identical to `validation/cu-btc/fortran_reference.tar.gz` after each EPSR run | **done, with one open point** (Phase 7a): example 08; byte-identical to the validated steps (wrapper and `epsr-rs` CLI) after every run, but on this machine the engine agrees with the Fortran archive only to the last digits; see *Decisions (Phase 7a)* in §8.2 |
 
 ### Implementation notes (settled while implementing)
 
@@ -1176,6 +1176,43 @@ section:
   nothing random happens before it.
 - **The PDB file** is an input, like a `.mint01`. Converting Dissolve to PDB
   (`make_pdb.py`) stays a data-preparation script and is out of scope.
+
+**Decisions (Phase 7a, 2026-10-19).**
+- **`Framework` is a separate class** (`epsr.system.Framework.from_pdb`), held by
+  `System(name, temperature, structure=framework)`. `density` is refused with a
+  structure (the cell sets it) and `System.add` is refused (molecules in a framework
+  are out of scope). The cell must be cubic (`EpsrUnsupportedError` otherwise).
+  `from_pdb` checks the label order (first appearance) and that the element `readpdb`
+  reads from columns 13-14 is each type's element (else `readpdb` silently makes a `Q`
+  dummy atom). `coarse_grain` on framework types is refused (not applied by
+  `changeato` here).
+- **`system.monte_carlo(...)`**, with `changeato`'s names (D1): `tol`, `stepmi`,
+  `stepri`, `stepr`, `stepm`, `vibtemp`, `angtemp`, `dihtemp`, `ecore`, `dcore`. For a
+  framework they are part of the `changeato` run (after `temp` and before the
+  per-type values, the order of `changeato.stdin`); for molecules a `changeato` run
+  with only these follows `mixato` when any is set (none by default, so example 07
+  is unchanged).
+- **Pipeline:** the PDB is copied as `<system>.pdb` with the packaged
+  `vanderWaalsRadii.txt` (a verbatim copy of `EPSR-test/`'s, as §8.4 asks), then
+  `readpdb` → `changeato` → (seed) → `nwts` → `.inp`. `Project.create`'s
+  `randomise` and `relax_iterations` now default to `None`: true / 100 for molecules,
+  false / 0 for a framework. The seed is written into the box after `changeato`,
+  before the scratch run.
+- **`equilibrate(callback=)`** was added (as on `refine`), called after the scratch
+  run and after the main run, so the folder can be checked after each EPSR run.
+- **Byte-identity with the Fortran archive (open point for the user).** On this
+  machine the Rust engine agrees with `fortran_reference.tar.gz` only to the last
+  digits: `.o01` from the scratch run on (the `powf` rounding of `python/docs/testing.md`),
+  then `.erg`, `.inpa`, `fort.35`, and after step 9 one `.out` value that differs by
+  one unit in its last printed digit, which the comparison counts as different. The
+  existing `test_cu_btc.py` fails in the same way here, and the setup API's folder
+  is byte-identical to the `epsr-rs` CLI's after the full schedule, so the
+  difference is the engine's on this platform, not the Python layer's.
+  `tests/test_framework.py` requires byte-identity with the validated steps run by
+  the wrapper after every EPSR run, and the Fortran comparison as `test_cu_btc.py`
+  does.
+- The wireframe's `"qmin": 0.05` is written `(0.05, 0.0)` in example 08, the values of
+  the validated input.
 
 ### 8.3 Gaps this example fills
 

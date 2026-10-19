@@ -63,3 +63,36 @@ def silica_system() -> System:
 
 def silica_samples() -> list[NeutronSample]:
     return [NeutronSample("SiO2", SILICA_DATA / "SiO2_NIMROD.mint01")]
+
+
+CU_BTC_CASE = REPOSITORY / "validation" / "cu-btc"
+CU_BTC_DATA = REPOSITORY / "experimental_data" / "cu-btc" / "data"
+#: Atom types of validation/cu-btc (changeato.stdin), in readpdb's order.
+CU_BTC_TYPES = [
+    AtomType("CU", "Cu", 0.02092, 3.144, 1.098),
+    AtomType("O", "O", 0.401664, 3.033, -0.665),
+    AtomType("C1", "C", 0.39748, 3.473, 0.778),
+    AtomType("C2", "C", 0.39748, 3.473, -0.092),
+    AtomType("C3", "C", 0.39748, 3.473, -0.014),
+    AtomType("H", "H", 0.06276, 2.846, 0.109, 1.008),
+]
+CU_BTC_SETTINGS = {
+    "qwidthqmax": (0.2, 5.0),
+    "hklqmin": (0.0, 10.0, 0.0),
+    "qmin": (0.05, 0.0),
+    "rshmin": 0.7,
+}
+
+
+def cu_btc_system() -> System:
+    from epsr import Framework
+
+    framework = Framework.from_pdb(
+        CU_BTC_CASE / "CuBTC.pdb", CU_BTC_TYPES, vdw_factor=0.68
+    )
+    system = System("CuBTC", temperature=300.0, structure=framework)
+    return system.monte_carlo(tol=0.0, stepmi=0.1, stepri=0.3, stepr=0.3, stepm=1.0)
+
+
+def cu_btc_samples() -> list[NeutronSample]:
+    return [NeutronSample("CuBTC", CU_BTC_DATA / "Empty-CuBTC.mint01")]

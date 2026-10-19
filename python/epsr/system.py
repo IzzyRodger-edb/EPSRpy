@@ -44,6 +44,7 @@ __all__ = [
     "Atom",
     "Molecule",
     "System",
+    "Framework",
     "PairParameters",
     "PairTable",
     "LABEL_MAX_LENGTH",
@@ -1324,6 +1325,173 @@ class PairTable(Sequence[PairParameters]):
 
 
 # --------------------------------------------------------------------------- System
+class Framework:
+    """A ready-made structure read from a PDB file: a crystal or another fixed configuration.
+
+    Unlike molecules added to a :class:`System`, the molecules of a framework are
+    not declared: ``readpdb`` makes one molecule per PDB residue (``CONECT``
+    records merge residues) and bonds atoms closer than ``vdw_factor`` times the
+    sum of their van der Waals radii; the bond angles become restraints. The atom
+    positions are kept (no ``randomise``, no ``fmole``).
+
+    Use :meth:`from_pdb`. The box is the PDB unit cell (``CRYST1``), which must be
+    cubic for now.
+
+    Attributes
+    ----------
+    path:
+        The PDB file.
+    types:
+        The atom types, in the order ``readpdb`` numbers them: the PDB atom names,
+        by first appearance. Labels are the PDB atom names; elements are read by
+        ``readpdb`` from columns 13-14 of the atom name, which must agree.
+    vdw_factor, dihedrals:
+        The answers to ``readpdb``: the bond-detection factor, and whether to make
+        ``DIH`` rotational groups.
+    cell:
+        ``(a, b, c, alpha, beta, gamma)`` of the ``CRYST1`` record (Å, degrees).
+    residue_sizes:
+        Number of atoms of each residue, in file order.
+    """
+
+    def __init__(
+        self,
+        path: Path,
+        types: Sequence[AtomType],
+        vdw_factor: float,
+        dihedrals: bool,
+        cell: tuple[float, float, float, float, float, float],
+        residue_sizes: Sequence[int],
+    ) -> None:
+        self.path = path
+        self.types = list(types)
+        self.vdw_factor = vdw_factor
+        self.dihedrals = dihedrals
+        self.cell = cell
+        self.residue_sizes = list(residue_sizes)
+
+    @classmethod
+    def from_pdb(
+        cls,
+        path: str | PathLike[str],
+        types: Sequence[AtomType],
+        *,
+        vdw_factor: float = 0.68,
+        dihedrals: bool = False,
+    ) -> Framework:
+        """Read a PDB file and check it against ``types``.
+
+        Checks, before any EPSR program runs: a cubic ``CRYST1`` cell; ``ATOM``
+        records; that ``types`` are the PDB atom names in order of first
+        appearance (``readpdb`` numbers the types so, and ``changeato`` addresses
+        them by number); and that the element ``readpdb`` will read (columns
+        13-14) is each type's element (otherwise it makes a dummy atom).
+        """
+        path = Path(path)
+        if any(character.isspace() for character in path.name):
+            raise ValueError(f"PDB file name {path.name!r} contains a blank")
+        lines = path.read_text(encoding="latin-1").splitlines()
+        cell_lines = [line for line in lines if line.startswith("CRYST1")]
+        if not cell_lines:
+            raise ValueError(f"{path}: no CRYST1 record (the unit cell)")
+        words = cell_lines[0].split()
+        cell = tuple(float(word) for word in words[1:7])
+        a, b, c, alpha, beta, gamma = cell
+        if not (a == b == c and alpha == beta == gamma == 90.0):
+            raise EpsrUnsupportedError(
+                f"{path}: the cell {cell} is not cubic; non-cubic boxes are not supported yet"
+            )
+        labels: list[str] = []
+        elements: dict[str, str] = {}
+        residue_sizes: list[int] = []
+        last_residue = None
+        for line in lines:
+            if not line.startswith("ATOM"):
+                continue
+            label = line[12:16].strip()
+            element = line[12:14].strip().upper()
+            if label not in labels:
+                labels.append(label)
+                elements[label] = element
+            residue = line[17:27]
+            if residue != last_residue:
+                residue_sizes.append(0)
+                last_residue = residue
+            residue_sizes[-1] += 1
+        if not labels:
+            raise ValueError(f"{path}: no ATOM records")
+        types = list(types)
+        if [atom_type.label for atom_type in types] != labels:
+            raise ValueError(
+                f"the atom types must be the PDB atom names in order of first appearance, "
+                f"{labels} (readpdb numbers them so), got {[t.label for t in types]}"
+            )
+        for atom_type in types:
+            if atom_type.element.upper() != elements[atom_type.label]:
+                raise ValueError(
+                    f"atom type {atom_type.label}: readpdb reads the element "
+                    f"{elements[atom_type.label]!r} from the PDB atom name, not "
+                    f"{atom_type.element!r}"
+                )
+            if atom_type.coarse_grain:
+                raise EpsrUnsupportedError(
+                    f"atom type {atom_type.label}: coarse_grain is not applied to a framework"
+                )
+        if not vdw_factor > 0:
+            raise ValueError(f"vdw_factor must be > 0, got {vdw_factor!r}")
+        if len(types) > MAX_ATOM_TYPES:
+            raise ValueError(
+                f"{len(types)} atom types; the engine allows at most {MAX_ATOM_TYPES}"
+            )
+        return cls(path, types, float(vdw_factor), bool(dihedrals), cell, residue_sizes)  # type: ignore[arg-type]
+
+    @property
+    def n_atoms(self) -> int:
+        return sum(self.residue_sizes)
+
+    @property
+    def box_size(self) -> float:
+        """Side of the cubic cell (Å)."""
+        return self.cell[0]
+
+    def __str__(self) -> str:
+        sizes: dict[int, int] = {}
+        for size in self.residue_sizes:
+            sizes[size] = sizes.get(size, 0) + 1
+        groups = ", ".join(f"{count} × {size} atoms" for size, count in sizes.items())
+        return (
+            f"{self.path.name}: cubic cell {self.box_size:g} Å, {self.n_atoms} atoms, "
+            f"{len(self.residue_sizes)} residues ({groups}), types "
+            f"{', '.join(atom_type.label for atom_type in self.types)}"
+        )
+
+    def __repr__(self) -> str:
+        return f"<epsr.Framework {self}>"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "path": str(self.path),
+            "types": [atom_type.label for atom_type in self.types],
+            "vdw_factor": self.vdw_factor,
+            "dihedrals": self.dihedrals,
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: Mapping[str, Any],
+        types: Mapping[str, AtomType],
+        *,
+        path: Path | None = None,
+    ) -> Framework:
+        return cls.from_pdb(
+            path or data["path"],
+            [types[label] for label in data["types"]],
+            vdw_factor=data["vdw_factor"],
+            dihedrals=data["dihedrals"],
+        )
+
+
 class System:
     """The simulation box: molecules, how many of each, density and temperature.
 
@@ -1337,16 +1505,26 @@ class System:
     density:
         Atomic number density in atoms/Å³, EPSR's own unit (water: 0.1). The box
         is cubic; its side follows from the number of atoms.
+    structure:
+        A :class:`Framework` read from a PDB file, instead of molecules: the box is
+        its unit cell and the density follows from it (give no ``density``).
     box:
         Reserved for non-cubic boxes, which are not supported yet.
 
     Use :meth:`add` to put molecules in, in order: **the order of the ``add``
     calls (and of the atoms within each molecule) fixes the atom-type order**,
     and with it the order of every pair-resolved result (g(r), potentials...).
+    :meth:`monte_carlo` sets the Monte Carlo step sizes and restraint parameters.
     """
 
     def __init__(
-        self, name: str, temperature: float, density: float, *, box: Any = None
+        self,
+        name: str,
+        temperature: float,
+        density: float | None = None,
+        *,
+        structure: Framework | None = None,
+        box: Any = None,
     ) -> None:
         if box is not None:
             raise EpsrUnsupportedError(
@@ -1354,8 +1532,41 @@ class System:
             )
         self.name = _check_file_name(name, "system name")
         self.temperature = _positive(temperature, "temperature")
+        if structure is not None:
+            if density is not None:
+                raise ValueError(
+                    "give density or structure, not both: the cell sets the density"
+                )
+            if not isinstance(structure, Framework):
+                raise TypeError("structure must be an epsr.system.Framework")
+            density = structure.n_atoms / structure.box_size**3
+        elif density is None:
+            raise TypeError("System needs density= (atoms/Å³) or structure=")
+        self.structure = structure
         self.density = _positive(density, "density (atoms/Å³)")
         self.components: list[tuple[Molecule, int]] = []
+        self.monte_carlo_parameters: dict[str, float] = {}
+
+    def monte_carlo(self, **parameters: float) -> System:
+        """Set Monte Carlo step sizes and restraint parameters, with ``changeato``'s names.
+
+        ``tol``, ``stepmi`` (intramolecular translation), ``stepri`` (intramolecular
+        rotation), ``stepr`` (molecular rotation), ``stepm`` (molecular translation),
+        ``vibtemp``, ``angtemp``, ``dihtemp``, ``ecore``, ``dcore``. They are written
+        into the box by ``changeato``; parameters not given keep the values the box
+        gets from ``mixato`` or ``readpdb``. Returns the system.
+        """
+        from .tools import CHANGEATO_PARAMETERS
+
+        unknown = set(parameters) - set(CHANGEATO_PARAMETERS)
+        if unknown:
+            raise KeyError(
+                f"unknown Monte Carlo parameters {sorted(unknown)}; valid: "
+                f"{list(CHANGEATO_PARAMETERS)}"
+            )
+        for key, value in parameters.items():
+            self.monte_carlo_parameters[key] = _positive(value, key, allow_zero=True)
+        return self
 
     def add(self, molecule: Molecule, count: int) -> System:
         """Add ``count`` copies of ``molecule``; returns the system, so calls can chain.
@@ -1364,6 +1575,8 @@ class System:
         """
         if not isinstance(molecule, Molecule):
             raise TypeError("System.add takes a Molecule")
+        if self.structure is not None:
+            raise EpsrUnsupportedError("molecules cannot be added to a framework yet")
         if isinstance(count, bool) or not isinstance(count, int) or count < 1:
             raise ValueError(
                 f"count of {molecule.name} must be an int >= 1, got {count!r}"
@@ -1404,6 +1617,8 @@ class System:
     @property
     def atom_types(self) -> list[AtomType]:
         """The atom types in EPSR's order: by molecule (``add`` order), then by first appearance."""
+        if self.structure is not None:
+            return list(self.structure.types)
         types: dict[str, AtomType] = {}
         for molecule, _ in self.components:
             for atom_type in molecule.atom_types:
@@ -1420,15 +1635,22 @@ class System:
 
     @property
     def n_molecules(self) -> int:
+        """Number of molecules (for a framework: of PDB residues)."""
+        if self.structure is not None:
+            return len(self.structure.residue_sizes)
         return sum(count for _, count in self.components)
 
     @property
     def n_atoms(self) -> int:
+        if self.structure is not None:
+            return self.structure.n_atoms
         return sum(molecule.n_atoms * count for molecule, count in self.components)
 
     @property
     def box_size(self) -> float:
         """Side of the cubic box (Å) at the given density."""
+        if self.structure is not None:
+            return self.structure.box_size
         return float((self.n_atoms / self.density) ** (1.0 / 3.0))
 
     def pair_parameters(self) -> PairTable:
@@ -1461,6 +1683,11 @@ class System:
         molecules = ", ".join(
             f"{count} × {molecule.name}" for molecule, count in self.components
         )
+        if self.structure is not None:
+            return (
+                f"{self.name}: framework {self.structure}, "
+                f"{self.density:.6g} atoms/Å³, {self.temperature} K"
+            )
         if not self.components:
             return f"{self.name}: empty, {self.density} atoms/Å³, {self.temperature} K"
         return (
@@ -1484,12 +1711,24 @@ class System:
                 {"molecule": molecule.to_dict(), "count": count}
                 for molecule, count in self.components
             ],
+            "structure": None if self.structure is None else self.structure.to_dict(),
+            "monte_carlo": dict(self.monte_carlo_parameters),
         }
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> System:
+    def from_dict(
+        cls, data: Mapping[str, Any], *, structure_path: Path | None = None
+    ) -> System:
+        """Rebuild from :meth:`to_dict`; ``structure_path`` replaces the PDB file's path."""
         types = {values["label"]: AtomType(**values) for values in data["atom_types"]}
-        system = cls(data["name"], data["temperature"], data["density"])
+        if data.get("structure"):
+            structure = Framework.from_dict(
+                data["structure"], types, path=structure_path
+            )
+            system = cls(data["name"], data["temperature"], structure=structure)
+        else:
+            system = cls(data["name"], data["temperature"], data["density"])
         for entry in data["molecules"]:
             system.add(Molecule.from_dict(entry["molecule"], types), entry["count"])
+        system.monte_carlo(**data.get("monte_carlo", {}))
         return system

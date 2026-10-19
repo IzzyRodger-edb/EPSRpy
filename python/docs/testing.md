@@ -52,6 +52,7 @@ Fortran did not also fail the test.
 | `test_samples.py` | `NeutronSample` and `read_mint01`: weights identical to `validation/water` and silica, isotope checks |
 | `test_settings.py` | `Settings` and the `.EPSR.inp`: the scratch run from the rendered input equals the validated one, every file |
 | `test_project_setup.py` | `Project.create`, `equilibrate`, `refine`, `run`, `set`, `settings`, `status`, `results`, datasets by name, `pair_params`, `epsr.analysis`, `epsr.vis.available()`; the setup and a short schedule identical to the validated steps; the slow test runs the full water schedule against the committed run |
+| `test_framework.py` | Cu-BTC from a PDB file: `Framework`, `readpdb`/`changeato` give the validated box, `create` gives the validated folder, the Bragg readers; slow: after each of the four EPSR runs every file is byte-identical to the validated steps run by the wrapper and agrees with the Fortran archive; example 08 runs |
 | `test_example_07.py` | slow: example 07 (written with the setup API) gives an `epsr_run/` byte-identical to the committed one |
 | `test_experimental_data.py` | water and silica built from scratch and refined against real neutron data; see the next section |
 | `test_cu_btc.py` | the Cu-BTC crystal read from a PDB file, refined with Bragg peaks against real neutron data, compared with the archived Fortran results after every EPSR run; see the next section |

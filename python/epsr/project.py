@@ -25,6 +25,7 @@ from os import PathLike
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ._elements import ELEMENT_MASSES
 from .io import KeywordFile, Table, read_erg, read_keyword_file, read_table_series
 from .simulation import PROJECT_FILE, Overrides, Simulation, Summary
 from .simulation import dataset_names as _folder_dataset_names
@@ -160,23 +161,37 @@ class Project:
         samples: Sequence[NeutronSample],
         settings: Mapping[str, Any] | None = None,
         *,
-        relax_iterations: int = 100,
-        randomise: bool = True,
+        relax_iterations: int | None = None,
+        randomise: bool | None = None,
         seed: int | None = None,
         overwrite: bool = False,
         verbose: bool = False,
     ) -> Project:
         """Build a simulation folder from Python definitions. EPSR does not run yet.
 
-        The steps are those of EPSR's own setup, with the same programs:
+        The steps are those of EPSR's own setup, with the same programs. For a
+        system of molecules:
 
         1. ``makemole`` for each molecule (its ``.mol`` file is written from the
-           :class:`~epsr.system.Molecule`);
-        2. ``mixato``: the box ``<system.name>.ato``;
+           :class:`~epsr.system.Molecule` and kept in the folder);
+        2. ``mixato``: the box ``<system.name>.ato``; then ``changeato`` if
+           :meth:`System.monte_carlo <epsr.system.System.monte_carlo>` set values;
         3. the random seed, if given (see ``seed``);
         4. ``randomise``: random positions and orientations;
         5. ``fmole``: ``relax_iterations`` shakes of the molecular geometry (skipped
-           when every molecule is a single atom, or with ``relax_iterations=0``);
+           when every molecule is a single atom, or with ``relax_iterations=0``).
+
+        For a :class:`~epsr.system.Framework` (``System(structure=...)``):
+
+        1. ``readpdb``: the PDB file (copied as ``<system.name>.pdb``, with EPSR's
+           ``vanderWaalsRadii.txt``) becomes the box ``<system.name>.ato``;
+        2. ``changeato``: the temperature, the Monte Carlo parameters and the
+           ε, σ, charge (and mass, where it is not the element's) of every type;
+        3. the random seed, if given. The crystal positions are kept: no
+           ``randomise`` and no ``fmole`` unless asked for.
+
+        Then, for both:
+
         6. ``nwts`` for each sample: ``<sample>.NWTS.dat`` → ``<sample>.NWTStot.wts``;
         7. the ``<system.name>.EPSR.inp`` run-control file, set for a scratch start.
 
@@ -195,9 +210,10 @@ class Project:
             ``ereq`` must be 0 here: the scratch start always has no empirical
             potential; switch it on with :meth:`refine`.
         relax_iterations:
-            ``fmole`` iterations (0: none).
+            ``fmole`` iterations (0: none). Default: 100, or 0 for a framework.
         randomise:
-            Randomise the box (``False`` keeps ``mixato``'s lattice).
+            Randomise the box (``False`` keeps ``mixato``'s lattice). Default: true,
+            or false for a framework.
         seed:
             Seed of EPSR's random-number generator (1 to 2**31 - 2), applied
             before the first random draw. ``None`` keeps EPSR's default, which is
@@ -220,8 +236,13 @@ class Project:
 
         if not isinstance(system, System):
             raise TypeError("Project.create needs an epsr.System")
-        if not system.components:
+        framework = system.structure
+        if not system.components and framework is None:
             raise ValueError(f"system {system.name} has no molecules; use System.add")
+        if randomise is None:
+            randomise = framework is None
+        if relax_iterations is None:
+            relax_iterations = 0 if framework is not None else 100
         samples = list(samples)
         if not samples:
             raise ValueError("Project.create needs at least one sample to fit")
@@ -260,25 +281,51 @@ class Project:
         _prepare_empty_folder(folder, overwrite)
         for sample in samples:
             shutil.copy2(sample.data_file, folder / sample.data_file.name)
-        for molecule in system.molecules:
-            mol_file = folder / f"{molecule.name}.mol"
-            mol_file.write_text(
-                molecule.render_mol(system.temperature), encoding="latin-1"
-            )
-            tools.makemole(folder, molecule.name, verbose=verbose)
         box = system.name
-        tools.mixato(
-            folder,
-            [(molecule.name, count) for molecule, count in system.components],
-            system.density,
-            box,
-            verbose=verbose,
-        )
+        if framework is not None:
+            shutil.copy2(framework.path, folder / f"{box}.pdb")
+            tools.copy_vdw_radii(folder)
+            tools.readpdb(
+                folder,
+                f"{box}.pdb",
+                framework.vdw_factor,
+                dihedrals=framework.dihedrals,
+                verbose=verbose,
+            )
+            commands = tools.changeato_commands(
+                temperature=system.temperature,
+                parameters=system.monte_carlo_parameters,
+                atom_types=[atom_type.to_dict() for atom_type in system.atom_types],
+                default_masses=ELEMENT_MASSES,
+            )
+            tools.changeato(folder, box, commands, verbose=verbose)
+        else:
+            for molecule in system.molecules:
+                mol_file = folder / f"{molecule.name}.mol"
+                mol_file.write_text(
+                    molecule.render_mol(system.temperature), encoding="latin-1"
+                )
+                tools.makemole(folder, molecule.name, verbose=verbose)
+            tools.mixato(
+                folder,
+                [(molecule.name, count) for molecule, count in system.components],
+                system.density,
+                box,
+                verbose=verbose,
+            )
+            if system.monte_carlo_parameters:
+                commands = tools.changeato_commands(
+                    parameters=system.monte_carlo_parameters
+                )
+                tools.changeato(folder, box, commands, verbose=verbose)
         if randomise:
             tools.randomise(folder, box, seed=seed, verbose=verbose)
         elif seed is not None:  # the first random draw is then in the scratch run
             tools.set_rng_seed(folder / f"{box}.ato", seed)
-        if relax_iterations and any(m.n_atoms > 1 for m in system.molecules):
+        has_molecules = framework is not None or any(
+            m.n_atoms > 1 for m in system.molecules
+        )
+        if relax_iterations and has_molecules:
             tools.fmole(folder, box, relax_iterations, verbose=verbose)
         for sample in samples:
             tools.nwts(
@@ -352,7 +399,11 @@ class Project:
         """The :class:`~epsr.system.System` the folder was built from."""
         from .system import System
 
-        return System.from_dict(self._require_record("system")["system"])
+        data = self._require_record("system")["system"]
+        structure_path = self.folder / f"{data['name']}.pdb"
+        return System.from_dict(
+            data, structure_path=structure_path if data.get("structure") else None
+        )
 
     @property
     def samples(self) -> list[NeutronSample]:
@@ -514,16 +565,21 @@ class Project:
         return []
 
     def _run_once(self, lines: list[str], record: Any, verbose: bool) -> Summary:
+        return self._run_simulation(lines, record, verbose).summary
+
+    def _run_simulation(
+        self, lines: list[str], record: Any, verbose: bool
+    ) -> Simulation:
         recorder = self._recorder_for(record)
         simulation = self.simulation(lines, verbose=verbose)
         if recorder is None:
-            summary = simulation.run()
+            simulation.run()
         else:
             from . import vis
 
-            summary = vis.run_recorded(simulation, recorder)
-        self.last_summary = summary
-        return summary
+            vis.run_recorded(simulation, recorder)
+        self.last_summary = simulation.summary
+        return simulation
 
     def _require_run(self, what: str) -> None:
         if not self.has_run:
@@ -568,6 +624,7 @@ class Project:
         *,
         scratch_iterations: int = 1,
         record: Any = False,
+        callback: Callable[[int, Simulation], bool | None] | None = None,
         verbose: bool = False,
         **settings: Any,
     ) -> History:
@@ -583,6 +640,9 @@ class Project:
 
         **Later calls** make one run of ``iterations``. If the empirical potential
         is on (``ereq > 0``) it is switched off (``ereq 0``), which sets it to zero.
+
+        ``callback(run_number, simulation)`` is called after each run (1: the
+        scratch start); returning true after the scratch start skips the rest.
         """
         from .refine import History
 
@@ -599,16 +659,22 @@ class Project:
             lines = pending.override_lines() + self._settings_lines(settings)
             if scratch_iterations != 1:  # the .inp of a new project has niter 1
                 lines.append(f"niter {scratch_iterations}")
-            history.append(self._run_once(lines, record, verbose))
+            scratch = self._run_simulation(lines, record, verbose)
+            history.append(scratch.summary)
             if pending:
                 self._set_pending_pcof(type(pending)())
+            if callback is not None and callback(1, scratch):
+                return history
             lines = [f"niter {iterations - scratch_iterations}"]
         else:
             lines = self._settings_lines(settings)
             if self._current_ereq() != 0:
                 lines.append("ereq 0.0")
             lines.append(f"niter {iterations}")
-        history.append(self._run_once(lines, record, verbose))
+        simulation = self._run_simulation(lines, record, verbose)
+        history.append(simulation.summary)
+        if callback is not None:
+            callback(len(history), simulation)
         return history
 
     def refine(

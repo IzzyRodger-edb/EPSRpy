@@ -129,6 +129,27 @@ runs, `settings` shows the current values and `status()` summarises the state.
 reproducible. `seed=None` keeps EPSR's default (identical to `seed=1`); any other
 seed (1 to 2³¹ − 2) gives a different starting box.
 
+**Crystals and other ready-made structures** come from a PDB file instead of
+molecules (`examples/08_cu_btc/cu_btc.py`):
+
+```python
+framework = epsr.Framework.from_pdb("CuBTC.pdb", types=[CU, O, C1, C2, C3, H],
+                                    vdw_factor=0.68, dihedrals=False)
+system = epsr.System("CuBTC", temperature=300.0, structure=framework)  # density from the cell
+system.monte_carlo(tol=0.0, stepmi=0.1, stepri=0.3, stepr=0.3, stepm=1.0)
+project = epsr.Project.create("work/cubtc", system, samples,
+                              settings={"qwidthqmax": (0.2, 5.0), "hklqmin": (0.0, 10.0, 0.0)})
+```
+
+`readpdb` makes one molecule per PDB residue and bonds atoms closer than `vdw_factor`
+times the sum of their van der Waals radii (EPSR's `vanderWaalsRadii.txt` ships with the
+package); `changeato` then applies the temperature, the Monte Carlo parameters and each
+type's ε, σ, charge and mass. The atom types must be the PDB atom names in order of first
+appearance, and their elements the ones `readpdb` reads from the atom names; both are
+checked when the framework is created. The crystal positions are kept (no `randomise`,
+no `fmole`); the cell must be cubic for now. `System.monte_carlo(...)` works for
+molecular systems too. `epsr.io.read_bragg` and `read_inten` read the Bragg outputs.
+
 The folder also holds `epsr_project.json` (the definitions, for `project.system` and
 `project.samples`) and the generated `.mol` files; EPSR ignores both. The setup
 programs work in the folder as their working directory, so build several folders

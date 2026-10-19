@@ -144,7 +144,7 @@ for the scratch start; a non-zero `ereq` is refused. `seed=None` is EPSR's defau
 
 | member | description |
 |---|---|
-| `equilibrate(iterations, *, scratch_iterations=1, record=False, verbose=False, **settings) -> History` | reference potential only. First call on a new project: the scratch start (`scratch_iterations`, creates the `.pcof`) + `iterations - scratch_iterations`; later calls: one run, `ereq` set to 0 |
+| `equilibrate(iterations, *, scratch_iterations=1, record=False, callback=None, verbose=False, **settings) -> History` | reference potential only. First call on a new project: the scratch start (`scratch_iterations`, creates the `.pcof`) + `iterations - scratch_iterations`; later calls: one run, `ereq` set to 0 |
 | `refine(ereq=None, runs=1, iterations=None, *, record=False, until=None, callback=None, snapshot_every=None, verbose=False, progress=False, **settings) -> History` | EP refinement; `ereq` applied before the first run |
 | `run(iterations=None, *, record=False, verbose=False, **settings) -> Summary` | one EPSR run |
 | `set(**settings)` | change keywords in the files without running (`.pcof` ones are pending before the first run) |
@@ -225,6 +225,10 @@ System(name, temperature, density)
 | `system.pair_parameters() -> PairTable` | Lorentz–Berthelot mixed ε_ij, σ_ij, 1390 q_i q_j and `terms` per pair |
 | `PairTable` | sequence of `PairParameters` (`types`, `label`, `epsilon`, `sigma`, `charge_product`, `terms`, engine extras); `table["OW-HW"]`, `str(table)`, `to_dataframe()` |
 
+| `Framework.from_pdb(path, types, *, vdw_factor=0.68, dihedrals=False)` | a structure from a PDB file for `readpdb`; checks the cubic `CRYST1` cell, the label order and the elements; `n_atoms`, `box_size`, `cell`, `residue_sizes` |
+| `System(name, temperature, structure=framework)` | a box that is the framework's cell (no `density`; no `add`) |
+| `system.monte_carlo(**parameters) -> System` | `changeato` values: `tol`, `stepmi`, `stepri`, `stepr`, `stepm`, `vibtemp`, `angtemp`, `dihtemp`, `ecore`, `dcore` |
+
 Limits: 40 atom types, 50 000 molecules, 999 atoms per molecule.
 
 ## epsr.samples
@@ -278,6 +282,8 @@ creation (`sample.data`).
 | `fmole(folder, box, iterations) -> Path` | relax the geometry; moves `*.mol` aside for the Rust port |
 | `nwts(folder, dat_file, *, box=None, components=None) -> Path` | with `components` (one dict per type: `atom`, `atsymbol`, `iexchange`, `abundances` as text or `{mass: fraction}`), writes the `.NWTS.dat` first; returns the `tot.wts` path |
 | `isotopes(element)`, `abundances_text(composition, element=None)`, `render_nwts(sample, box, components)` | the isotope table; checked `abundances` text; `.NWTS.dat` text |
+| `readpdb(folder, pdb_file, vdw_factor, *, dihedrals=False) -> Path` | a PDB file → `<name>.ato`; copies `vanderWaalsRadii.txt` if missing (`copy_vdw_radii`) |
+| `changeato(folder, box, commands) -> Path`, `changeato_commands(*, temperature=None, parameters=None, atom_types=(), default_masses=None)` | run `changeato`; its standard input from values |
 | `nwts`, `xwts`, `partials`, `coord`, `triangles`, `torangles` `(folder, dat_file)` | keyword-file programs; raise `FileNotFoundError` for a missing file |
 | `writexyz(folder, ato_file, answers="")` | convert a configuration to `.xyz` |
 
@@ -289,6 +295,8 @@ creation (`sample.data`).
 | `read_table_series(first) -> Table` | the same, merging continuation files `…02`, `…03` |
 | `read_erg(path) -> ndarray` | `(n, 10)`; column names in `ERG_COLUMNS` |
 | `read_keyword_file(path) -> KeywordFile` | `title`, `values`, `blocks`, `block_keyword`, `descriptions`, `trailer` (lines after `q`), `words(key)` |
+| `read_bragg(path) -> BraggReflections` | a `.EPSR.bragg` file: `n_reflections`, unique `q` and `multiplicity`, `n_unique` |
+| `read_inten(path) -> BraggIntensities` | a `.EPSR.inten` file: `q`, and `(n_pairs, n_q)` arrays `intramolecular`, `bragg`, `convolved` |
 | `read_mint01(path) -> Mint01` | a Gudrun `.mint01` file: `header`, `title`, `q`, `f`, `errors`, `n_points`, `q_range`, `valid`, `warnings()`; refuses non-numeric rows and more than 5000 points |
 
 Repeated labels in a table header get a `#2` suffix (`.z01` lists each pair twice).

@@ -26,6 +26,10 @@ __all__ = [
     "read_keyword_file",
     "Mint01",
     "read_mint01",
+    "BraggReflections",
+    "BraggIntensities",
+    "read_bragg",
+    "read_inten",
     "ERG_COLUMNS",
     "MAX_DATA_POINTS",
 ]
@@ -389,6 +393,92 @@ def read_mint01(path: str | PathLike[str]) -> Mint01:
     if not data.valid.any():
         raise ValueError(f"{path.name}: every row is zero; there is nothing to fit")
     return data
+
+
+#: Marker lines of a ``.bragg`` file; "refections" is the engine's own spelling (sic).
+BRAGG_COUNT_MARKER = "# Number of Bragg refections calculated:"
+BRAGG_UNIQUE_VALUES_MARKER = "Unique Bragg Q values"
+
+
+@dataclass(frozen=True)
+class BraggReflections:
+    """The Bragg reflections EPSR enumerated for a crystal (``.EPSR.bragg``).
+
+    ``q`` and ``multiplicity`` list the unique Q values (Å⁻¹) in the order the
+    engine enumerated them (not sorted; (0 0 0) at Q = 0 sits mid-list).
+    """
+
+    path: Path
+    n_reflections: int
+    q: FloatArray
+    multiplicity: npt.NDArray[np.int64]
+
+    @property
+    def n_unique(self) -> int:
+        return len(self.q)
+
+
+def read_bragg(path: str | PathLike[str]) -> BraggReflections:
+    """Read a ``.EPSR.bragg`` file: the number of reflections and the unique Q values."""
+    path = Path(path)
+    n_reflections, q_values, multiplicities = 0, [], []
+    listing_unique_values = False
+    for line in path.read_text(encoding="latin-1").splitlines():
+        words = line.lstrip("# ").split()
+        if line.startswith(BRAGG_COUNT_MARKER):
+            n_reflections = int(words[-1])
+        elif BRAGG_UNIQUE_VALUES_MARKER in line:
+            listing_unique_values = True
+        elif listing_unique_values and len(words) == 3:
+            q_values.append(float(words[1]))
+            multiplicities.append(int(float(words[2])))
+    return BraggReflections(
+        path,
+        n_reflections,
+        np.array(q_values, dtype=float),
+        np.array(multiplicities, dtype=np.int64),
+    )
+
+
+@dataclass(frozen=True)
+class BraggIntensities:
+    """The Bragg intensities of every atom pair on the Q grid (``.EPSR.inten``).
+
+    Arrays are ``(n_pairs, n_q)``, pairs in the simulation's pair order:
+    ``intramolecular`` is the current intramolecular partial S(Q), ``bragg`` the
+    Bragg intensity and ``convolved`` the Bragg intensity broadened by the peak
+    width (``qwidthqmax``).
+    """
+
+    path: Path
+    q: FloatArray
+    intramolecular: FloatArray
+    bragg: FloatArray
+    convolved: FloatArray
+
+    @property
+    def n_pairs(self) -> int:
+        return int(self.bragg.shape[0])
+
+
+def read_inten(path: str | PathLike[str]) -> BraggIntensities:
+    """Read a ``.EPSR.inten`` file (header ``# n_pairs ...``, then Q and three values per pair)."""
+    path = Path(path)
+    header = path.read_text(encoding="latin-1").splitlines()[0].lstrip("# ").split()
+    n_pairs = int(header[0])
+    table = np.loadtxt(path, comments="#", ndmin=2)
+    if table.shape[1] != 1 + 3 * n_pairs:
+        raise ValueError(
+            f"{path.name}: {table.shape[1]} columns, expected 1 + 3 x {n_pairs} pairs"
+        )
+    per_pair = table[:, 1:].reshape(len(table), n_pairs, 3)
+    return BraggIntensities(
+        path,
+        table[:, 0],
+        per_pair[:, :, 0].T.copy(),
+        per_pair[:, :, 1].T.copy(),
+        per_pair[:, :, 2].T.copy(),
+    )
 
 
 def import_optional(module_name: str, extra: str) -> Any:

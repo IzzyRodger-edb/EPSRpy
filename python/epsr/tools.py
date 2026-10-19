@@ -36,6 +36,7 @@ not affected.
 
 from __future__ import annotations
 
+import importlib.resources
 import math
 import os
 import shutil
@@ -64,6 +65,10 @@ __all__ = [
     "randomise",
     "set_rng_seed",
     "fmole",
+    "readpdb",
+    "changeato",
+    "changeato_commands",
+    "copy_vdw_radii",
     "nwts",
     "render_nwts",
     "isotopes",
@@ -505,6 +510,122 @@ def fmole(
         for path in moved:
             shutil.move(path, folder / path.name)
         aside.rmdir()
+
+
+#: The van der Waals radii ``readpdb`` reads from the folder (EPSR's own table).
+VDW_RADII_FILE = "vanderWaalsRadii.txt"
+#: ``changeato`` keywords that :func:`changeato_commands` accepts as Monte Carlo
+#: and restraint parameters (the temperature is a separate argument).
+CHANGEATO_PARAMETERS = (
+    "tol",
+    "stepmi",
+    "stepri",
+    "stepr",
+    "stepm",
+    "vibtemp",
+    "angtemp",
+    "dihtemp",
+    "ecore",
+    "dcore",
+)
+
+
+def copy_vdw_radii(folder: str | PathLike[str]) -> Path:
+    """Copy EPSR's ``vanderWaalsRadii.txt`` (shipped with the package) into ``folder``."""
+    source = importlib.resources.files("epsr") / "data" / VDW_RADII_FILE
+    destination = Path(folder) / VDW_RADII_FILE
+    destination.write_bytes(source.read_bytes())
+    return destination
+
+
+def readpdb(
+    folder: str | PathLike[str],
+    pdb_file: str,
+    vdw_factor: float,
+    *,
+    dihedrals: bool = False,
+    verbose: bool = False,
+) -> Path:
+    """Read a PDB file into an EPSR box ``<name>.ato``, as the ``readpdb`` program.
+
+    Each residue becomes a molecule (``CONECT`` records merge them); atoms closer
+    than ``vdw_factor`` times the sum of their van der Waals radii are bonded, and
+    the bond angles become restraints. With ``dihedrals``, ``DIH`` rotational groups
+    are made too. The radii file is copied into the folder if it is missing.
+    Returns the path of the ``.ato`` file.
+    """
+    folder = Path(folder)
+    name = _base_name(pdb_file, ".pdb")
+    if not (folder / f"{name}.pdb").is_file():
+        raise FileNotFoundError(f"readpdb: {folder / name}.pdb does not exist")
+    if not vdw_factor > 0:
+        raise ValueError(f"readpdb: vdw_factor must be > 0, got {vdw_factor!r}")
+    if not (folder / VDW_RADII_FILE).is_file():
+        copy_vdw_radii(folder)
+    box_file = folder / f"{name}.ato"
+    time_before = _modification_time(box_file)
+    answers = [repr(float(vdw_factor)), "y" if dihedrals else "n"]
+    run(folder, "readpdb", [f"{name}.pdb"], answers=answers, verbose=verbose)
+    return _check_written(box_file, time_before, "readpdb")
+
+
+def changeato_commands(
+    *,
+    temperature: float | None = None,
+    parameters: Mapping[str, float] | None = None,
+    atom_types: Sequence[Mapping[str, Any]] = (),
+    default_masses: Mapping[str, float] | None = None,
+) -> list[str]:
+    """The standard input of ``changeato`` that sets these values and saves the box.
+
+    ``temperature`` is ``temp``; ``parameters`` are among :data:`CHANGEATO_PARAMETERS`
+    (written in that order); ``atom_types`` gives, per atom type of the box in box
+    order, ``epsilon``, ``sigma``, ``charge`` and optionally ``mass`` (written as
+    ``atmass`` only when it differs from ``default_masses[element]``, the mass
+    EPSR assigned) and ``element``. The commands end with ``save``, ``y``, ``e``.
+    """
+    commands = []
+    if temperature is not None:
+        commands.append(f"temp {float(temperature):g}")
+    parameters = dict(parameters or {})
+    unknown = set(parameters) - set(CHANGEATO_PARAMETERS)
+    if unknown:
+        raise KeyError(
+            f"changeato: unknown parameters {sorted(unknown)}; "
+            f"valid: {list(CHANGEATO_PARAMETERS)}"
+        )
+    for key in CHANGEATO_PARAMETERS:
+        if key in parameters:
+            commands.append(f"{key} {repr(float(parameters[key]))}")
+    for number, values in enumerate(atom_types, start=1):
+        commands.append(f"atom {number}")
+        for key in ("epsilon", "sigma", "charge"):
+            commands.append(f"{key} {repr(float(values[key]))}")
+        mass = values.get("mass")
+        default = (default_masses or {}).get(values.get("element", ""))
+        if mass is not None and (default is None or abs(float(mass) - default) > 1e-6):
+            commands.append(f"atmass {repr(float(mass))}")
+    return [*commands, "save", "y", "e"]
+
+
+def changeato(
+    folder: str | PathLike[str],
+    box: str,
+    commands: Sequence[str],
+    *,
+    verbose: bool = False,
+) -> Path:
+    """Run ``changeato`` on ``<box>.ato`` with ``commands`` (see :func:`changeato_commands`).
+
+    Returns the path of the rewritten box.
+    """
+    folder = Path(folder)
+    box_file = folder / f"{_base_name(box, '.ato')}.ato"
+    if not box_file.is_file():
+        raise FileNotFoundError(f"changeato: {box_file} does not exist")
+    time_before = _modification_time(box_file)
+    run(folder, "changeato", [box_file.name], answers=list(commands), verbose=verbose)
+    return _check_written(box_file, time_before, "changeato")
 
 
 def isotopes(element: str) -> dict[int, float]:
