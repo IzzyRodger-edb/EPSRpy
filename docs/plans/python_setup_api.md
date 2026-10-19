@@ -66,9 +66,9 @@ started without the user's agreement, even if it looks small.
 
 | id | capability | phase | shown in | acceptance | status |
 |---|---|---|---|---|---|
-| C1 | `AtomType`: ε, σ, charge, mass (default by element), `exchangeable` (D5), `coarse_grain`; label ≤ 3 chars; docstring states the §1.8 mixing rules | 2 | WF §1 | unit tests for validation; water `.ato` type table identical |  |
-| C2 | `Molecule`: named atoms + bonds/angles/rotations by name or index (D4); `vibtemp`/`angtemp`/`dihtemp`; `render_mol`; `from_geometry`, `from_xyz`, `from_mol`, `from_ato`, `Molecule.atom`; rejects dihedrals | 2 | WF §1 | `makemole` on the rendered water and silica `.mol` gives `.ato` files identical to `validation/` |  |
-| C3 | `System`: `add` order = type order, `density` in atoms/Å³ (D6), `temperature`, engine limits, `pair_parameters()` with a `terms` column | 2 | WF §2 | the water table of §4.3; limit errors |  |
+| C1 | `AtomType`: ε, σ, charge, mass (default by element), `exchangeable` (D5), `coarse_grain`; label ≤ 3 chars; docstring states the §1.8 mixing rules | 2 | WF §1 | unit tests for validation; water `.ato` type table identical | **done** (Phase 2): `epsr.system.AtomType`; `tests/test_system.py` |
+| C2 | `Molecule`: named atoms + bonds/angles/rotations by name or index (D4); `vibtemp`/`angtemp`/`dihtemp`; `render_mol`; `from_geometry`, `from_xyz`, `from_mol`, `from_ato`, `Molecule.atom`; rejects dihedrals | 2 | WF §1 | `makemole` on the rendered water and silica `.mol` gives `.ato` files identical to `validation/` | **done** (Phase 2): water and silica `.mol` byte-identical to `validation/`, same templates from `makemole`; `from_mol` round trips; `from_ato` approximate (see notes) |
+| C3 | `System`: `add` order = type order, `density` in atoms/Å³ (D6), `temperature`, engine limits, `pair_parameters()` with a `terms` column | 2 | WF §2 | the water table of §4.3; limit errors | **done** (Phase 2): `System`, `pair_parameters()` → `PairTable` (printable, `to_dataframe()`) |
 | C4 | `NeutronSample`: isotopes as `{mass_number: fraction}` (D7), checked against the isotope table; per-sample `exchangeable` override; per-dataset keywords; `.mint01` validation | 3 | WF §3 | rendered `.NWTS.dat` → `nwts` → `.NWTStot.wts` identical to `validation/water`; bad isotopes raise |  |
 | C5 | `Settings`: the keyword table binding; EPSR names (D1); unknown keys rejected; routing to `.inp`/`.pcof`/data blocks; `.inp` rendering | 0, 4 | WF §4 | table round trip; `.inp` after the scratch run identical to the validated one | Phase 0 part done: `_core.epsr_keywords()` with file routing |
 | C6 | Typed setup tools: `makemole`, `mixato`, `randomise`, `fmole` (`.mol` handled), `nwts` from structured input | 1 | inside `create` | the water box rebuilt with these calls is identical to `validation/water` | **done** (Phase 1): `tools.makemole/mixato/randomise/fmole/nwts(components=)`; water box and weights identical to the validated steps (`tests/test_setup_tools.py`) |
@@ -130,6 +130,38 @@ started without the user's agreement, even if it looks small.
     `tools.abundances_text` (≤ 5 isotopes, sum 1 ± 1e-6, mass numbers in the engine's
     table for the element). The old `nwts(folder, dat_file)` call is unchanged, apart
     from now returning the path of the `tot.wts` file.
+- **Phase 2 (2026-10-19).**
+  - **Coarse-graining defaults (wireframe note 3):** no special default for O.
+    `AtomType(coarse_grain=...)` defaults to makemole's own values (nsph 1, rmin 0,
+    rmax 0.5·σ, cg 1); example 07 passes `rmax=1.55` for OW explicitly. Values equal to
+    the defaults are dropped, so equal types compare equal.
+  - **Masses** default to EPSR's `chatwt` (`chemical_symbols.inc`), kept as Python data
+    in `epsr/_elements.py`.
+  - **`angles=None`** (not `()`) is the default of `Molecule`: makemole needs an angle
+    for every two atoms bonded to a common atom (and prompts on stdin otherwise), so
+    `None` generates exactly those from the geometry. An explicit list must contain them
+    all. `bond_lengths=` / `angle_values=` set targets that differ from the geometry
+    (the EPSR-test water template has 0.951 Å coordinates and 0.976 Å bonds).
+  - **`Molecule.atom`** is both the one-atom constructor `Molecule.atom(atom_type)` (C2)
+    and, on an instance, the atom lookup `molecule.atom("H1")` (§4.3); a small
+    descriptor dispatches on class versus instance.
+  - **`render_mol(temperature)`** takes the system temperature (the `.mol`
+    `temperature` line).
+  - **`.mol` layout:** atom lines are a list-directed record; a fixed-form real is a
+    12-column field plus 4 blanks, an E-form real a 16-column field (DMSO has
+    `5.93999997E-02`). Mellor's fixed widths only covered the first case.
+  - makemole numbers atom types by first appearance among the atoms (`ftype`), which
+    is `System.atom_types`; the order of `potential` lines is cosmetic. `from_mol`
+    keeps no potential order, so DMSO.mol re-renders with O before H, and makemole
+    gives the identical template.
+  - **`from_ato` is approximate:** the `.ato` keeps restraint distances to three
+    significant digits (`-.154E+01`), so angles rebuilt from 1-3 distances are off by
+    up to ~0.6° (water 104.5° → 104.17°). Documented; prefer `from_mol`.
+  - **The wireframe's "equivalent explicit form" is not byte-equivalent:** its
+    coordinates (−0.28754, 0.93268) are rounded to five digits, which moves H2 and gives
+    a measured angle of 107.13424°. `from_geometry` reproduces example 07 exactly; the
+    rewritten example must not claim that the explicit form gives the same box.
+  - `System(box=...)` raises `EpsrUnsupportedError` (cubic only).
 
 ### Out of scope until agreed with the user
 
