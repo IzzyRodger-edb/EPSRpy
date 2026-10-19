@@ -17,6 +17,9 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(tools::tool_commands, m)?)?;
     m.add_function(wrap_pyfunction!(tools::tool_tables, m)?)?;
     m.add_function(wrap_pyfunction!(tools::tool_keywords, m)?)?;
+    m.add_function(wrap_pyfunction!(tools::epsr_keywords, m)?)?;
+    m.add_function(wrap_pyfunction!(tools::isotope_table, m)?)?;
+    m.add_function(wrap_pyfunction!(tools::set_rng_seed, m)?)?;
     m.add("VERSION_DATE", epsr_core::VERSION_DATE)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())

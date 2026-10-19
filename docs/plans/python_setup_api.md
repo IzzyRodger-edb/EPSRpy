@@ -1,6 +1,7 @@
 # Plan: a Python setup API for EPSR (investigation and design)
 
-**Status:** investigation and design only (2026-10-19). No code has been written or changed.
+**Status:** design agreed (2026-10-19); implementation in progress on `feature/python-setup-api`.
+See the *status* column of the checklist and *Implementation notes* below it.
 **For:** the agent that implements it. Read this whole document first. The *capability
 checklist* (after the decisions) is the definition of done and the scope boundary. §5 is
 the work plan, and §8 specifies the next example, Cu-BTC.
@@ -63,36 +64,58 @@ started without the user's agreement, even if it looks small.
 
 ### In scope: liquids and amorphous systems with neutron data (example 07)
 
-| id | capability | phase | shown in | acceptance |
-|---|---|---|---|---|
-| C1 | `AtomType`: ε, σ, charge, mass (default by element), `exchangeable` (D5), `coarse_grain`; label ≤ 3 chars; docstring states the §1.8 mixing rules | 2 | WF §1 | unit tests for validation; water `.ato` type table identical |
-| C2 | `Molecule`: named atoms + bonds/angles/rotations by name or index (D4); `vibtemp`/`angtemp`/`dihtemp`; `render_mol`; `from_geometry`, `from_xyz`, `from_mol`, `from_ato`, `Molecule.atom`; rejects dihedrals | 2 | WF §1 | `makemole` on the rendered water and silica `.mol` gives `.ato` files identical to `validation/` |
-| C3 | `System`: `add` order = type order, `density` in atoms/Å³ (D6), `temperature`, engine limits, `pair_parameters()` with a `terms` column | 2 | WF §2 | the water table of §4.3; limit errors |
-| C4 | `NeutronSample`: isotopes as `{mass_number: fraction}` (D7), checked against the isotope table; per-sample `exchangeable` override; per-dataset keywords; `.mint01` validation | 3 | WF §3 | rendered `.NWTS.dat` → `nwts` → `.NWTStot.wts` identical to `validation/water`; bad isotopes raise |
-| C5 | `Settings`: the keyword table binding; EPSR names (D1); unknown keys rejected; routing to `.inp`/`.pcof`/data blocks; `.inp` rendering | 0, 4 | WF §4 | table round trip; `.inp` after the scratch run identical to the validated one |
-| C6 | Typed setup tools: `makemole`, `mixato`, `randomise`, `fmole` (`.mol` handled), `nwts` from structured input | 1 | inside `create` | the water box rebuilt with these calls is identical to `validation/water` |
-| C7 | `seed=` (D3, §1.7): `set_rng_seed`; `None` = default | 0, 1 | WF §4 | the §1.7 table: default = seed 1, 42 reproducible and different, 0 rejected |
-| C8 | `Project.create`: steps 1–6 of §1.6, no EPSR run (D2), `epsr_project.json`, pending `.pcof` settings, rejects `ereq ≠ 0` | 5 | WF §4 | folder contents before the first run identical to the validated case at that step |
-| C9 | `equilibrate`: scratch start + (N − 1) on the first call (D2); `History` with both rows | 5 | WF §5 | `create` + `equilibrate(100)` identical to steps 7–8 of `validation/water` |
-| C10 | `refine(ereq=, runs=, iterations=, until=, callback=, snapshot_every=)` | 5 | WF §5 | full water schedule identical to `validation/water` |
-| C11 | `run`, `set`, `settings`, `status`; `run`/`refine` on a project that has never run raise an error | 5 | WF §4 | unit tests |
-| C12 | `record=True` and `project.trajectory()` (all recorded runs concatenated) | 5 | WF §5, §7 | the trajectory has scratch + 99 + 200 steps; recording does not change any file |
-| C13 | `project.results()`: no file modified (`.qdr` included) | 0 (optional Rust), 5 | WF §6 | folder hashes are unchanged before and after the call |
-| C14 | Datasets by sample name everywhere (`fit("D2O")`, settings `data` blocks, `Summary.r_factor_for`) | 5 | WF §6 | unit tests; integers still work |
-| C15 | `pair_params()` from the engine: ε_ij, σ_ij, q_i q_j, `coulfac`, active `.pcof` extras, `terms` | 0, 5 | WF §6 | water values; EPSR-test-ex1 shows the extras |
-| C16 | `epsr.analysis.first_peak`, `coordination_number` | 5 | WF §6 | O–O 2.79 Å, O···H ≈ 1.8 Å on the water result |
-| C17 | `epsr.vis.available()` | 5 | WF §5 | importable with and without the `plot` extra |
-| C18 | Example 07 rewritten to WF; docs (`user_guide`, `api`, READMEs) | 6 | WF | **new slow test:** `epsr_run/` byte-identical to the committed output |
-| C19 | Backwards compatibility: every existing public call keeps working (`overrides` as an alias of `settings`) | all | — | the existing `python/tests` pass unchanged |
+| id | capability | phase | shown in | acceptance | status |
+|---|---|---|---|---|---|
+| C1 | `AtomType`: ε, σ, charge, mass (default by element), `exchangeable` (D5), `coarse_grain`; label ≤ 3 chars; docstring states the §1.8 mixing rules | 2 | WF §1 | unit tests for validation; water `.ato` type table identical |  |
+| C2 | `Molecule`: named atoms + bonds/angles/rotations by name or index (D4); `vibtemp`/`angtemp`/`dihtemp`; `render_mol`; `from_geometry`, `from_xyz`, `from_mol`, `from_ato`, `Molecule.atom`; rejects dihedrals | 2 | WF §1 | `makemole` on the rendered water and silica `.mol` gives `.ato` files identical to `validation/` |  |
+| C3 | `System`: `add` order = type order, `density` in atoms/Å³ (D6), `temperature`, engine limits, `pair_parameters()` with a `terms` column | 2 | WF §2 | the water table of §4.3; limit errors |  |
+| C4 | `NeutronSample`: isotopes as `{mass_number: fraction}` (D7), checked against the isotope table; per-sample `exchangeable` override; per-dataset keywords; `.mint01` validation | 3 | WF §3 | rendered `.NWTS.dat` → `nwts` → `.NWTStot.wts` identical to `validation/water`; bad isotopes raise |  |
+| C5 | `Settings`: the keyword table binding; EPSR names (D1); unknown keys rejected; routing to `.inp`/`.pcof`/data blocks; `.inp` rendering | 0, 4 | WF §4 | table round trip; `.inp` after the scratch run identical to the validated one | Phase 0 part done: `_core.epsr_keywords()` with file routing |
+| C6 | Typed setup tools: `makemole`, `mixato`, `randomise`, `fmole` (`.mol` handled), `nwts` from structured input | 1 | inside `create` | the water box rebuilt with these calls is identical to `validation/water` |  |
+| C7 | `seed=` (D3, §1.7): `set_rng_seed`; `None` = default | 0, 1 | WF §4 | the §1.7 table: default = seed 1, 42 reproducible and different, 0 rejected | Phase 0 part done: `_core.set_rng_seed`; §1.7 table reproduced |
+| C8 | `Project.create`: steps 1–6 of §1.6, no EPSR run (D2), `epsr_project.json`, pending `.pcof` settings, rejects `ereq ≠ 0` | 5 | WF §4 | folder contents before the first run identical to the validated case at that step |  |
+| C9 | `equilibrate`: scratch start + (N − 1) on the first call (D2); `History` with both rows | 5 | WF §5 | `create` + `equilibrate(100)` identical to steps 7–8 of `validation/water` |  |
+| C10 | `refine(ereq=, runs=, iterations=, until=, callback=, snapshot_every=)` | 5 | WF §5 | full water schedule identical to `validation/water` |  |
+| C11 | `run`, `set`, `settings`, `status`; `run`/`refine` on a project that has never run raise an error | 5 | WF §4 | unit tests |  |
+| C12 | `record=True` and `project.trajectory()` (all recorded runs concatenated) | 5 | WF §5, §7 | the trajectory has scratch + 99 + 200 steps; recording does not change any file |  |
+| C13 | `project.results()`: no file modified (`.qdr` included) | 0 (optional Rust), 5 | WF §6 | folder hashes are unchanged before and after the call | Phase 0: no Rust change (decision in *Implementation notes*) |
+| C14 | Datasets by sample name everywhere (`fit("D2O")`, settings `data` blocks, `Summary.r_factor_for`) | 5 | WF §6 | unit tests; integers still work |  |
+| C15 | `pair_params()` from the engine: ε_ij, σ_ij, q_i q_j, `coulfac`, active `.pcof` extras, `terms` | 0, 5 | WF §6 | water values; EPSR-test-ex1 shows the extras | Phase 0 part done: `_core.Simulation.pair_params()` |
+| C16 | `epsr.analysis.first_peak`, `coordination_number` | 5 | WF §6 | O–O 2.79 Å, O···H ≈ 1.8 Å on the water result |  |
+| C17 | `epsr.vis.available()` | 5 | WF §5 | importable with and without the `plot` extra |  |
+| C18 | Example 07 rewritten to WF; docs (`user_guide`, `api`, READMEs) | 6 | WF | **new slow test:** `epsr_run/` byte-identical to the committed output |  |
+| C19 | Backwards compatibility: every existing public call keeps working (`overrides` as an alias of `settings`) | all | — | the existing `python/tests` pass unchanged |  |
 
 ### In scope next: crystalline systems from a PDB file (example 08, Cu-BTC, §8)
 
-| id | capability | phase | acceptance |
-|---|---|---|---|
-| C20 | `Framework.from_pdb`: a structure from a PDB file through `readpdb` (bond detection by vdW factor, optional `DIH` groups), with the `vanderWaalsRadii.txt` shipped by the package and a check of the label order | 7a | `.ato` after `readpdb` identical to the validated run |
-| C21 | Force field and Monte Carlo parameters applied to an existing configuration, through `changeato` (per-type ε/σ/charge/mass; `temp`, `tol`, step sizes), using EPSR's `changeato` keyword names (D1) | 7a | `.ato` after `changeato` identical to the validated run |
-| C22 | Bragg settings as `Settings` with tuple values (`qwidthqmax`, `hklqmin`, `mplicities`); results readers for `.bragg` and `.inten` (`epsr.io`) | 7a | 80 726 reflections at 940 unique Q, as in `validation/cu-btc/README.md` |
-| C23 | Example 08 (Cu-BTC) in the new syntax | 7a | every file byte-identical to `validation/cu-btc/fortran_reference.tar.gz` after each EPSR run |
+| id | capability | phase | acceptance | status |
+|---|---|---|---|---|
+| C20 | `Framework.from_pdb`: a structure from a PDB file through `readpdb` (bond detection by vdW factor, optional `DIH` groups), with the `vanderWaalsRadii.txt` shipped by the package and a check of the label order | 7a | `.ato` after `readpdb` identical to the validated run |  |
+| C21 | Force field and Monte Carlo parameters applied to an existing configuration, through `changeato` (per-type ε/σ/charge/mass; `temp`, `tol`, step sizes), using EPSR's `changeato` keyword names (D1) | 7a | `.ato` after `changeato` identical to the validated run |  |
+| C22 | Bragg settings as `Settings` with tuple values (`qwidthqmax`, `hklqmin`, `mplicities`); results readers for `.bragg` and `.inten` (`epsr.io`) | 7a | 80 726 reflections at 940 unique Q, as in `validation/cu-btc/README.md` |  |
+| C23 | Example 08 (Cu-BTC) in the new syntax | 7a | every file byte-identical to `validation/cu-btc/fortran_reference.tar.gz` after each EPSR run |  |
+
+### Implementation notes (settled while implementing)
+
+- **Phase 0 (2026-10-19).**
+  - **Keyword routing**, read from the engine's writers (`save_inp_file`, `save_pcof_file`
+    in `symbols.rs`), with 1-based table positions: `.inp` header = 1–2, 10–46 and 65
+    (40 keywords); `.pcof` header = 3–9 and 47–64 (25 keywords, `ereq`…`sfreq`,
+    `roverlap`…`refpotfac`); `data n` block = 66–73 (8 keywords). `_core.epsr_keywords()`
+    returns this as the `file` field (`"inp"`, `"pcof"`, `"data"`). Tested against the
+    validated water `.inp` and a `.pcof` the engine wrote.
+  - **`set_rng_seed`** reads the box with `minitc` and writes it with `moloutc` (as
+    `randomise` does). On the mixato water box this rewrite is byte-identical except for
+    the RNG record, and the §1.7 table is reproduced exactly.
+  - **Isotope table units:** the Sears values are in 10⁻¹² cm (H natural −0.3739, i.e.
+    −3.739 fm), not fm as §4.3 says.
+  - **C13, read-only results:** the `.qdr` is written by `lsparabola1` inside
+    `Epsr::setup` whenever `iinit != 1`. Skipping it would need a new engine flag, so the
+    Rust side stays unchanged and `project.results()` will save and restore the `.qdr`
+    in Python (Phase 5).
+  - `pair_params()` is bound on `_core.Simulation` with Fortran names (`ecor`, `dcor`,
+    `qcor`, `coulfac`, `rminex`, `pcoefex`, `coordex`, `rmaxex`, `pcoefexmax`,
+    `gaussians`, `pcof_entry`); the readable Python layer comes in Phase 5.
 
 ### Out of scope until agreed with the user
 

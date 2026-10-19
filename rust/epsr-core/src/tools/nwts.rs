@@ -32,6 +32,12 @@ mod sears91;
 /// `parameter(misotope=5)`
 pub const MISOTOPE: usize = 5;
 
+/// The Sears (1991) table compiled into `nwts`: `(chemical symbol, mass number,
+/// coherent scattering length in 10⁻¹² cm)`, mass number 0 = natural element.
+pub fn isotope_table() -> &'static [(&'static str, i32, f32)] {
+    &sears91::SEARS91
+}
+
 /// `function scatt_len(chsym,massno,ifind)`: neutron scattering length of the
 /// isotope `massno` (0 = natural element) of chemical symbol `chsym` from the
 /// table `sears91_gudrun.inc`.  Returns `(scatt_len, ifind)`.
