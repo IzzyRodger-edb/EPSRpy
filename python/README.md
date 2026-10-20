@@ -7,8 +7,20 @@ Fortran output byte for byte.
 
 ## Install
 
-You need a Rust toolchain (stable, 1.85 or later), Python 3.10 or later and
-[uv](https://docs.astral.sh/uv/).
+With pip, from the repository root (you need a Rust toolchain, stable 1.85 or later, and
+Python 3.10 or later; the first build compiles the engine, 5–10 minutes):
+
+```bash
+pip install "./python[plot]"
+# or without a clone:
+pip install "epsr-py[plot] @ git+https://github.com/IzzyRodger-edb/EPSRpy#subdirectory=python"
+```
+
+The extras are `plot` (matplotlib, scipy), `viewer` (pyvista, for 3D views and
+movies), `pandas`, `progress` (tqdm) and `all`. Pre-built wheels, which need no Rust,
+are described in the [top-level README](../README.md#1-installation).
+
+For development, use [uv](https://docs.astral.sh/uv/):
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh        # if uv is not installed
@@ -18,8 +30,6 @@ uv sync --all-extras        # creates .venv, compiles the Rust engine, installs 
 ```
 
 `uv sync` rebuilds the extension whenever the Rust engine or the bindings change.
-The extras are `plot` (matplotlib, scipy), `viewer` (pyvista, for 3D views and
-movies), `pandas` and `progress` (tqdm).
 
 ## Run
 

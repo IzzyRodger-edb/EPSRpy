@@ -1,21 +1,45 @@
 [build-system]
-requires = ["maturin>=1.5,<2"]
+requires = ["maturin>=1.9,<2"]
 build-backend = "maturin"
 
 [project]
 name = "epsr-py"
-version = "0.1.0"
+# The version is that of the Rust crate (Cargo.toml), set by maturin.
+dynamic = ["version"]
 description = "Python interface to the Rust port of EPSR (Empirical Potential Structure Refinement)"
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]  # a copy of the repository's LICENSE, for the distributions
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.24"]
+keywords = [
+    "EPSR",
+    "neutron scattering",
+    "x-ray scattering",
+    "total scattering",
+    "structure refinement",
+    "disordered materials",
+    "liquids",
+]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Rust",
     "Topic :: Scientific/Engineering :: Physics",
     "Topic :: Scientific/Engineering :: Chemistry",
 ]
+
+[project.urls]
+Homepage = "https://github.com/IzzyRodger-edb/EPSRpy"
+Documentation = "https://github.com/IzzyRodger-edb/EPSRpy/blob/main/python/docs/user_guide.md"
+Source = "https://github.com/IzzyRodger-edb/EPSRpy"
+Issues = "https://github.com/IzzyRodger-edb/EPSRpy/issues"
+
+[project.scripts]
+# Reports, 3D views and movies of a recorded refinement (needs the plot/viewer extras)
+epsrvis = "epsr.vis.cli:main"
 
 [project.optional-dependencies]
 # matplotlib figures (epsr.plot) and the refinement analysis (epsr.vis)
@@ -51,6 +75,15 @@ dev = [
 module-name = "epsr._core"
 bindings = "pyo3"
 profile = "release"
+# The source distribution carries the engine (../rust/epsr-core, copied in by
+# maturin) but not the tests, the examples and their committed outputs.
+exclude = [
+    { path = "tests/**/*", format = "sdist" },
+    { path = "examples/**/*", format = "sdist" },
+    { path = "docs/**/*", format = "sdist" },
+    { path = "uv.lock", format = "sdist" },
+    { path = ".python-version", format = "sdist" },
+]
 
 [tool.uv]
 # Rebuild the extension whenever the bindings or the Rust engine change.
