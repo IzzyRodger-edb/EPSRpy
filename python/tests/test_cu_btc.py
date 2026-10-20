@@ -14,7 +14,9 @@ The original Fortran EPSR was run on the same steps; its folder after every EPSR
 run is archived in ``validation/cu-btc/fortran_reference.tar.gz``
 (``make_fortran_reference.py``). After each EPSR run through the wrapper, every
 file of the folder is compared with that archive, so this module needs no Fortran
-build. The full schedule (1 + 99 + 100 + 100 iterations) takes about 4 minutes.
+build. The archive was made with a correctly rounded ``sinhf`` (glibc >= 2.42); on a
+libm without one the comparison is skipped (``epsr_cases.HAS_CORRECTLY_ROUNDED_SINHF``).
+The full schedule (1 + 99 + 100 + 100 iterations) takes about 4 minutes.
 """
 
 from __future__ import annotations
@@ -29,7 +31,14 @@ import pytest
 
 import epsr
 
-from epsr_cases import Comparison, cli_binary, compare_dirs, extract_archive
+from epsr_cases import (
+    HAS_CORRECTLY_ROUNDED_SINHF,
+    OLD_SINHF_REASON,
+    Comparison,
+    cli_binary,
+    compare_dirs,
+    extract_archive,
+)
 from epsr_workflow import (
     CU_BTC,
     WrapperRun,
@@ -109,6 +118,8 @@ def _cli_matches_wrapper(cu_btc: CuBtcRun, work: Path) -> Comparison | None:
 
 def test_matches_fortran_after_every_run(cu_btc: CuBtcRun, tmp_path: Path) -> None:
     """Every file equals the original Fortran's after each of the four EPSR runs."""
+    if not HAS_CORRECTLY_ROUNDED_SINHF:
+        pytest.skip(OLD_SINHF_REASON)
     reports = {
         step_number: comparison.report()
         for step_number, comparison in cu_btc.comparisons.items()

@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -15,7 +16,13 @@ import epsr
 from epsr import Framework, Project, System, tools
 from epsr._elements import ELEMENT_MASSES
 
-from epsr_cases import PYTHON_DIR, compare_dirs, extract_archive
+from epsr_cases import (
+    HAS_CORRECTLY_ROUNDED_SINHF,
+    OLD_SINHF_REASON,
+    PYTHON_DIR,
+    compare_dirs,
+    extract_archive,
+)
 from epsr_definitions import (
     CU_BTC_CASE,
     CU_BTC_SETTINGS,
@@ -71,11 +78,11 @@ def _assert_no_extra_files(reference: Path, candidate: Path) -> None:
 def _assert_matches_fortran(snapshot: Path, candidate: Path) -> None:
     """Every file agrees with the Fortran's, as in ``test_cu_btc.py``.
 
-    Identical, or equal to the last digits: the reference-potential table holds
-    values of order 1e13 whose 7th digit depends on the libm rounding of ``powf``
-    (``python/docs/testing.md``), and the Monte Carlo then carries that into the
-    last digits of other files. Byte-identity is required against the validated
-    steps run by the wrapper instead (see the test).
+    Identical, or equal to the last digits, with the tolerance policy of
+    ``python/docs/testing.md``. Only meaningful with a correctly rounded ``sinhf``
+    (``epsr_cases.HAS_CORRECTLY_ROUNDED_SINHF``), with which the archive was made.
+    Byte-identity is required against the validated steps run by the wrapper
+    instead (see the test).
     """
     comparison = compare_dirs(snapshot, candidate)
     assert comparison.passed, comparison.report()
@@ -207,7 +214,8 @@ def test_bragg_readers(tmp_path: Path) -> None:
 def test_cu_btc_equals_the_fortran_after_every_run(tmp_path: Path) -> None:
     """create + equilibrate(1 + 99) + refine(ereq 10, 2 x 100). After each of the four
     EPSR runs every file is byte-identical to the validated steps run by the wrapper,
-    and agrees with the original Fortran's (archive) as in ``test_cu_btc.py``."""
+    and agrees with the original Fortran's (archive) as in ``test_cu_btc.py``, when
+    the platform's ``sinhf`` is correctly rounded like the archive's."""
     _needs_case()
     archive = extract_archive(ARCHIVE, tmp_path / "fortran")
     snapshots = {}
@@ -224,7 +232,8 @@ def test_cu_btc_equals_the_fortran_after_every_run(tmp_path: Path) -> None:
 
     def check(step: int) -> None:
         _assert_identical(wrapper[step], project.folder)
-        _assert_matches_fortran(snapshots[step], project.folder)
+        if HAS_CORRECTLY_ROUNDED_SINHF:
+            _assert_matches_fortran(snapshots[step], project.folder)
         compared.append(step)
 
     equilibration = project.equilibrate(
@@ -237,6 +246,8 @@ def test_cu_btc_equals_the_fortran_after_every_run(tmp_path: Path) -> None:
         callback=lambda run, simulation: check((9, 10)[run - 1]),
     )
     assert compared == list(EPSR_STEPS)
+    if not HAS_CORRECTLY_ROUNDED_SINHF:
+        warnings.warn(f"Cu-BTC archive not compared: {OLD_SINHF_REASON}", stacklevel=1)
     r_factors = [*equilibration.r_factor, *history.r_factor]
     assert r_factors == pytest.approx([3.08e-2, 2.29e-2, 1.69e-2, 1.64e-2], rel=0.02)
     result = project.results()

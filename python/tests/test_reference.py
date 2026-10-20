@@ -7,12 +7,14 @@ makes. A second test proves the wrapper drives the engine exactly like the
 ``epsr-rs`` CLI, byte for byte, which holds on any platform.
 
 Platform note: the reference potential table ``.o01`` holds values of order
-1e13 at very small r. Their last printed digit depends on the libm rounding of
-``powf``, which differs between glibc versions, so on some machines that one
-file differs from the Fortran hash in the 7th significant digit (the Rust test
-fails the same way there). That file is reported as a warning rather than a
-failure unless ``EPSR_STRICT=1``; ``test_ex_cases.py`` checks its numbers
-against the full Fortran reference within a relative tolerance of 1e-5.
+1e13 at very small r, computed with the platform's single-precision ``sinhf``.
+The hashes were made with a correctly rounded ``sinhf`` (glibc >= 2.42). With
+an older libm (glibc <= 2.40: fdlibm code, 1 ulp off for about 10 % of
+arguments) that one file differs from the Fortran hash in the 7th significant
+digit, and the Rust test fails the same way. On such a platform the file is
+reported as a warning rather than a failure unless ``EPSR_STRICT=1``;
+``test_ex_cases.py`` checks its numbers against the full Fortran reference
+within a relative tolerance of 1e-5.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ import epsr
 
 from conftest import CompletedRun
 from epsr_cases import (
+    HAS_CORRECTLY_ROUNDED_SINHF,
     IS_GLIBC,
     REQUIRE_IDENTICAL,
     RUST_DIR,
@@ -64,7 +67,11 @@ def test_outputs_match_fortran_reference(completed_run: CompletedRun) -> None:
         assert output_file.exists(), f"missing output {file_name}"
         if hash_file(file_name, output_file) == expected_hash:
             continue
-        if file_name in LIBM_SENSITIVE_FILES and not REQUIRE_IDENTICAL:
+        if (
+            file_name in LIBM_SENSITIVE_FILES
+            and not REQUIRE_IDENTICAL
+            and not HAS_CORRECTLY_ROUNDED_SINHF
+        ):
             libm_sensitive_mismatches.append(file_name)
         else:
             mismatches.append(file_name)
@@ -80,7 +87,7 @@ def test_outputs_match_fortran_reference(completed_run: CompletedRun) -> None:
     if libm_sensitive_mismatches:
         warnings.warn(
             f"{libm_sensitive_mismatches} differ from the Fortran hash "
-            "(libm rounding; see test_reference.py docstring)",
+            "(sinhf not correctly rounded; see test_reference.py docstring)",
             stacklevel=1,
         )
 
