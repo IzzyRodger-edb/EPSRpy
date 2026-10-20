@@ -1,6 +1,15 @@
 """Running the auxiliary EPSR programs (setup and analysis tools) from Python.
 
-Run from the ``python/`` folder:  uv run python examples/04_tools.py
+Run from the ``python/`` folder:
+
+    uv run python examples/04_tools/auxiliary_tools.py    # a few seconds
+
+EPSR comes with 35 auxiliary programs besides the refinement itself: setup programs
+(``makemole``, ``mixato``, ``nwts``...) and analysis programs (``partials``, ``coord``,
+``sdf``...). They run on a copy of the DMSO/water test case (``template/``, from ``EPSR-test/``) in three
+ways: keyword-file programs with a Python dict, programs with command-line arguments,
+and programs that ask their questions on standard input. Everything goes to
+``output/`` next to this script.
 """
 
 import os
@@ -9,15 +18,14 @@ from pathlib import Path
 import epsr
 from epsr import tools
 
-EXAMPLES_FOLDER = Path(__file__).resolve().parent
-TEMPLATE = EXAMPLES_FOLDER.parents[1] / "EPSR-test"
-OUTPUT_ROOT = Path(
-    os.environ.get("EPSR_EXAMPLES_WORK", EXAMPLES_FOLDER.parent / "work")
-)
-WORK_FOLDER = OUTPUT_ROOT / "04_tools"
+EXAMPLE_FOLDER = Path(__file__).resolve().parent
+TEMPLATE = (
+    EXAMPLE_FOLDER / "template"
+)  # the run files of EPSR-test/: 200 DMSO + 400 water
+OUTPUT = Path(os.environ.get("EPSR_EXAMPLES_WORK", EXAMPLE_FOLDER)) / "output"
 
-project = epsr.Project.from_template(TEMPLATE, WORK_FOLDER, overwrite=True)
-folder = project.folder
+project = epsr.Project.from_template(TEMPLATE, OUTPUT / "epsr_run", overwrite=True)
+folder = project.folder  # the tools work on the folder, as EPSR's own programs do
 print(len(tools.commands()), "tools:", ", ".join(tools.commands()))
 
 # 1. A keyword-file setup tool: neutron weights from an existing .NWTS.dat file.

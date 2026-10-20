@@ -2,7 +2,7 @@
 
 EPSR refinement of the metal-organic framework Cu-BTC (HKUST-1) against the NIMROD data
 of the empty framework (`experimental_data/cu-btc/data/Empty-CuBTC.mint01`), with Bragg
-peaks calculated up to Q = 5 Å⁻¹. [`cu_btc.py`](cu_btc.py) defines the system with the
+peaks calculated up to Q = 5 Å⁻¹. [`cu_btc_from_scratch.py`](cu_btc_from_scratch.py) defines the system with the
 setup API; unlike example 07 the configuration comes from a crystal structure, not from
 molecules:
 
@@ -14,8 +14,8 @@ molecules:
 | neutron weights | `NeutronSample("CuBTC", ...)` (natural isotopes) | `nwts` |
 | Bragg peaks and data treatment | `settings={"qwidthqmax": (0.2, 5.0), "hklqmin": (0.0, 10.0, 0.0), ...}` | `CuBTC.EPSR.inp` |
 
-The PDB file is `validation/cu-btc/CuBTC.pdb`, made from the Dissolve example by
-`validation/cu-btc/make_pdb.py`: the framework is split at its Cu–O bonds into 24 Cu₂
+The PDB file [`CuBTC.pdb`](CuBTC.pdb) is a copy of `validation/cu-btc/CuBTC.pdb`, made
+from the Dissolve example by `validation/cu-btc/make_pdb.py`: the framework is split at its Cu–O bonds into 24 Cu₂
 paddlewheels and 32 benzene-tricarboxylate linkers. The 192 Cu–O bonds are therefore
 intermolecular in this model (Lennard-Jones + Coulomb only), its main approximation;
 see `validation/cu-btc/README.md`.
@@ -23,8 +23,8 @@ see `validation/cu-btc/README.md`.
 Run from the `python/` folder:
 
 ```bash
-uv run python examples/08_cu_btc/cu_btc.py            # ~4 minutes
-uv run python examples/08_cu_btc/cu_btc.py --quick    # 10 iterations per run
+uv run python examples/08_cu_btc_from_scratch/cu_btc_from_scratch.py            # ~4 minutes
+uv run python examples/08_cu_btc_from_scratch/cu_btc_from_scratch.py --quick    # 10 iterations per run
 ```
 
 The schedule is that of `validation/cu-btc/steps.txt`: `equilibrate(iterations=100)`

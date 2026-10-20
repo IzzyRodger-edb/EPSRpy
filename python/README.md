@@ -82,90 +82,58 @@ calculation (`uv run pytest -m slow -k example_07`).
 
 | command | purpose |
 |---|---|
-| `uv run python examples/05_experimental_water.py --quick` | refine water against real data (about 45 s) |
-| `uv run python examples/06_experimental_SiO2.py --quick` | refine amorphous silica against real data (about 1 minute) |
+| `uv run python examples/07_water_from_scratch/water_from_scratch.py --quick` | refine water against real data (about 1 minute) |
+| `uv run python examples/09_sio2_from_scratch/sio2_from_scratch.py --quick` | refine amorphous silica against real data (about 1.5 minutes) |
 | `uv run pytest -n auto` | the whole test suite (365 tests, including the slow refinements on real data) |
 | `uv run pytest -m "not slow" -n 4` | the quick tests (222 tests, about 3 minutes on 4 cores) |
 | `uv run isort . && uv run black . && uv run ruff check . && uv run mypy` | format, lint, type-check |
 
 ## Examples on real experimental data
 
-Three systems from the Dissolve examples in [`../experimental_data`](../experimental_data)
-are built from scratch and refined against measured neutron data. Each has been run
-by the original Fortran EPSR, by the Rust CLI and by this wrapper, and every output
-file of the three is byte-identical; the plots below overlay their partial g(r).
+Four systems from [`../experimental_data`](../experimental_data) are built from scratch
+in Python and refined against measured neutron data. Each example is a folder with one
+script and a README; see [examples/README.md](examples/README.md) for the full list.
 
-### Water: 1000 H₂O against SANDALS H₂O, D₂O and HDO data
+| example | system | data (ISIS) | how the system is defined |
+|---|---|---|---|
+| [07_water_from_scratch](examples/07_water_from_scratch) | 1000 H₂O, 300 K | SANDALS: H₂O, D₂O, HDO | `Molecule.from_geometry` |
+| [08_cu_btc_from_scratch](examples/08_cu_btc_from_scratch) | Cu-BTC (HKUST-1) unit cell, Bragg peaks | NIMROD | `Framework.from_pdb` |
+| [09_sio2_from_scratch](examples/09_sio2_from_scratch) | 1500 Si + 3000 O, amorphous | NIMROD | `Molecule.atom` (one-atom "molecules") |
+| [10_benzene_from_scratch](examples/10_benzene_from_scratch) | 200 C₆H₆, 300 K | NIMROD: C₆H₆, C₆D₆, 50:50 | `Molecule.from_xyz` |
+
+Examples [05](examples/05_water_existing_epsr_files) and
+[06](examples/06_sio2_existing_epsr_files) run the water and silica calculations
+from existing EPSR input files (`.mol`, `.NWTS.dat`, `.EPSR.inp` written for the
+Fortran EPSR) inside the Python framework, and give the same folders as 07 and 09.
+
+Water, silica and Cu-BTC have been run by the original Fortran EPSR, by the Rust CLI
+and by this wrapper, and every output file of the three is byte-identical; the plots
+below overlay their partial g(r). Benzene has no Fortran reference yet.
 
 ```bash
-uv run python examples/05_experimental_water.py            # full schedule, about 4 minutes
-uv run python examples/05_experimental_water.py --quick    # 10 iterations per run, about 30 s
+uv run python examples/07_water_from_scratch/water_from_scratch.py            # full schedule, about 4 minutes
+uv run python examples/07_water_from_scratch/water_from_scratch.py --quick    # 10 iterations per run
 ```
 
-The core of [examples/05_experimental_water.py](examples/05_experimental_water.py):
-
-```python
-work = Path("work/water")
-epsr.copy_folder("../validation/water", work, overwrite=True)        # setup inputs
-for data_file in Path("../experimental_data/water/data").glob("*.mint01"):
-    shutil.copy2(data_file, work / data_file.name)                  # measured data
-
-tools.run(work, "makemole", ["Water"])                              # molecule template
-tools.run(work, "mixato", answers=["1", "Water", "1000", "0.1", "waterbox"])  # the box
-tools.run(work, "randomise", ["waterbox"])
-(work / "Water.mol").unlink()  # fmole refuses to run while the .mol is present
-tools.run(work, "fmole", ["waterbox", "100"])                       # relax the geometry
-for sample in ("H2O", "D2O", "HDO"):
-    tools.nwts(work, f"{sample}.NWTS.dat")                          # neutron weights
-
-project = epsr.Project(work, "waterbox.EPSR.inp")
-project.simulation().run()                                          # scratch start
-project.simulation(overrides={"niter": 99}).run()                   # reference potential only
-history = epsr.refine(project, n_runs=2, overrides={"niter": 100},
-                      initial_overrides={"ereq": 3.0})              # empirical potential on
-```
-
-After the full schedule the R-factor falls from 6.1×10⁻⁴ (reference potential) to
-2.3×10⁻⁴, with the O···H hydrogen-bond peak at 1.80 Å and the O–O peak at 2.79 Å.
+After the full water schedule the R-factor falls from 6.1×10⁻⁴ (reference potential)
+to 2.3×10⁻⁴, with the O···H hydrogen-bond peak at 1.80 Å and the O–O peak at 2.79 Å.
 
 ![Water: partial g(r) from the Fortran, the Rust CLI and the Python wrapper](../validation/water/gr_agreement.png)
 
-### Amorphous silica against NIMROD data
-
-1500 Si + 3000 O at 0.0664 atoms/Å³, built with `mixato` and refined with `ereq` 50.
-Inputs in [`../validation/silica_bulk`](../validation/silica_bulk):
-
-```bash
-uv run python examples/06_experimental_SiO2.py            # full schedule, about 12 minutes
-uv run python examples/06_experimental_SiO2.py --quick    # 10 iterations per run, about 1 minute
-uv run pytest tests/test_experimental_data.py -k silica   # the same calculation as a test
-```
-
 ![Silica: partial g(r) from the Fortran, the Rust CLI and the Python wrapper](../validation/silica_bulk/gr_agreement.png)
-
-### Cu-BTC (HKUST-1), a crystal with Bragg peaks, against NIMROD data
-
-One 624-atom unit cell of the metal-organic framework, converted from the Dissolve
-input to a PDB file, read with `readpdb`, given the Dissolve force field with
-`changeato`, and refined with Bragg peaks up to 5 Å⁻¹. Inputs and the conversion
-notes are in [`../validation/cu-btc`](../validation/cu-btc); it runs as a test that
-compares every file with the archived Fortran results after every EPSR run:
-
-```bash
-uv run pytest tests/test_cu_btc.py
-```
 
 ![Cu-BTC: partial g(r) from the Fortran, the Rust CLI and the Python wrapper](../validation/cu-btc/gr_agreement.png)
 
 ### Figures of the whole refinement
 
-Both experimental examples record every EPSR iteration with `epsr.vis` and end
-with figures of the refinement in `work/<example>_figures/`:
+The examples on real data record every EPSR iteration with `epsr.vis` and end with
+figures of the refinement in `examples/<example>/output/figures/`:
 - convergence (energy, pressure, R-factor and R² per data set, EP amplitude, MC acceptance);
 - F(Q) fits and residual maps, partials, the empirical potential, coordination numbers and bond angles;
 - the 3D configuration next to the partial g(r);
 - for water, the partial g(r) against the experimental partials of Soper (2000);
-- for silica, the formation of the tetrahedral network.
+- for silica, the formation of the tetrahedral network;
+- for benzene, the relative orientation of neighbouring rings.
 
 Add `--no-3d` to skip the 3D image, e.g. on a machine without OpenGL.
 
@@ -174,4 +142,4 @@ Add `--no-3d` to skip the 3D image, e.g. on a machine without OpenGL.
 * [docs/user_guide.md](docs/user_guide.md): setting up a system from Python, the workflow, overrides and settings, perturbing the potential, tools, plotting and `epsr.vis`, parallel runs.
 * [docs/api.md](docs/api.md): every public class and function.
 * [docs/architecture.md](docs/architecture.md) and [docs/testing.md](docs/testing.md): how the wrapper is built and verified.
-* [examples/](examples): `01` to `04` show a single run, a refinement loop, potential perturbation and the tools on the DMSO/water test case; `07_water_from_scratch` sets up water entirely in Python, and `08_cu_btc` a crystal read from a PDB file.
+* [examples/](examples/README.md): `01` to `04` show a single run, a refinement loop, potential perturbation and the tools on the DMSO/water test case; `05` and `06` run existing EPSR input files; `07` to `10` set up water, Cu-BTC, silica and benzene entirely in Python.

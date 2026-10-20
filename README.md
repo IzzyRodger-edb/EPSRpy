@@ -166,7 +166,7 @@ The examples read the measured data in `experimental_data/`, so run them from a 
 
 ```bash
 python python/examples/07_water_from_scratch/water_from_scratch.py --quick   # about 1 minute
-python python/examples/05_experimental_water.py --quick
+python python/examples/09_sio2_from_scratch/sio2_from_scratch.py --quick
 ```
 
 ### Development setup
@@ -175,7 +175,7 @@ To work on the package itself, use uv. It creates `python/.venv` with the extens
 
 ```bash
 cd python && uv sync --all-extras          # compiles the Rust engine on first sync
-uv run python examples/05_experimental_water.py --quick
+uv run python examples/07_water_from_scratch/water_from_scratch.py --quick
 uv run pytest -m "not slow" -n 4           # the quick tests; plain `uv run pytest` runs them all
 
 # the engine on its own, as a drop-in replacement for the Fortran `epsr`
@@ -251,7 +251,7 @@ epsr.analysis.first_peak(result.r, result.gr_inter("OW", "OW"), (2.0, 4.0))
 
 With the three SANDALS samples this script is [example 07](python/examples/07_water_from_scratch/water_from_scratch.py), and its folder is byte-identical to the validated water calculation.
 
-`epsr.vis` records every iteration and draws convergence plots, F(Q) fits and residual maps, partials, empirical potentials, coordination numbers, bond angles and 3D configurations. Examples 05–07 refine water and silica against real data.
+`epsr.vis` records every iteration and draws convergence plots, F(Q) fits and residual maps, partials, empirical potentials, coordination numbers, bond angles and 3D configurations. Examples 05–10 refine water, Cu-BTC, silica and benzene against real data ([python/examples/](python/examples/README.md)).
 
 Documentation: [user guide](python/docs/user_guide.md), [API reference](python/docs/api.md), [architecture](python/docs/architecture.md), [testing](python/docs/testing.md).
 
@@ -356,7 +356,7 @@ project.refine(ereq=50.0, runs=2, iterations=100)
 
 ![Silica: initial configuration, reference potential of the three pairs, and the measured F(Q)](docs/figures/silica.png)
 
-**Validation:** the folder before the first EPSR run is byte-identical to the validated `validation/silica_bulk/steps.txt` setup (`tests/test_project_setup.py`). After the full schedule, every file is byte-identical to the original Fortran EPSR's folder for the same steps on this machine (run on 2026-10-20; the API's `epsr_project.json` is the only extra file). [Example 06](python/examples/06_experimental_SiO2.py) runs the same calculation with the lower-level calls.
+**Validation:** the folder before the first EPSR run is byte-identical to the validated `validation/silica_bulk/steps.txt` setup (`tests/test_project_setup.py`). After the full schedule, every file is byte-identical to the original Fortran EPSR's folder for the same steps on this machine (run on 2026-10-20; the API's `epsr_project.json` is the only extra file). The complete script is [example 09](python/examples/09_sio2_from_scratch/sio2_from_scratch.py); [example 06](python/examples/06_sio2_existing_epsr_files/sio2_existing_files.py) runs the same calculation from the existing EPSR input files of `validation/silica_bulk/`.
 
 #### Cu-BTC (HKUST-1): a crystal from a PDB file, with Bragg peaks
 
@@ -382,7 +382,7 @@ project.refine(ereq=10.0, runs=2, iterations=100)
 
 ![Cu-BTC: a slab of the unit cell, reference potential of three pairs, and the measured F(Q) with its Bragg peaks](docs/figures/cu_btc.png)
 
-The complete script is [example 08](python/examples/08_cu_btc/cu_btc.py). **Validation:** the box after `readpdb` and after `changeato`, and the folder before the first EPSR run, are byte-identical to the validated `validation/cu-btc/steps.txt` calculation. After each of the four EPSR runs, every file is byte-identical to the same steps run by the earlier Python wrapper route, and to the `epsr-rs` CLI after the full schedule (`tests/test_framework.py`). EPSR enumerates the expected 80 726 Bragg reflections at 940 unique Q values.
+The complete script is [example 08](python/examples/08_cu_btc_from_scratch/cu_btc_from_scratch.py). **Validation:** the box after `readpdb` and after `changeato`, and the folder before the first EPSR run, are byte-identical to the validated `validation/cu-btc/steps.txt` calculation. After each of the four EPSR runs, every file is byte-identical to the same steps run by the earlier Python wrapper route, and to the `epsr-rs` CLI after the full schedule (`tests/test_framework.py`). EPSR enumerates the expected 80 726 Bragg reflections at 940 unique Q values.
 
 **Against the original Fortran:** every file is also byte-identical to the Fortran's after each EPSR run (`validation/cu-btc/fortran_reference.tar.gz`). The comparison needs a correctly rounded single-precision `sinhf`, i.e. glibc 2.42 or later. With an older glibc, the reference-potential table differs in its 7th significant digit, and the Monte Carlo carries that into the last digits of the energies. The tests then skip that comparison. [`docs/plans/cu_btc_fortran_discrepancy.md`](docs/plans/cu_btc_fortran_discrepancy.md) records the investigation, and `python/docs/testing.md` the rule.
 

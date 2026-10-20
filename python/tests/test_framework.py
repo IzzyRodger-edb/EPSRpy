@@ -38,7 +38,7 @@ from epsr_workflow import (
 )
 
 ARCHIVE = CU_BTC_CASE / "fortran_reference.tar.gz"
-EXAMPLE = PYTHON_DIR / "examples" / "08_cu_btc" / "cu_btc.py"
+EXAMPLE = PYTHON_DIR / "examples" / "08_cu_btc_from_scratch" / "cu_btc_from_scratch.py"
 #: Prompt files of the validated steps; the setup API passes the answers itself.
 STEP_INPUTS = {"readpdb.stdin", "changeato.stdin"}
 #: The steps' EPSR runs (numbers in steps.txt) after which the archive holds the folder.

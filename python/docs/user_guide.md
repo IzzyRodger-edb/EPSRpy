@@ -130,7 +130,7 @@ reproducible. `seed=None` keeps EPSR's default (identical to `seed=1`); any othe
 seed (1 to 2³¹ − 2) gives a different starting box.
 
 **Crystals and other ready-made structures** come from a PDB file instead of
-molecules (`examples/08_cu_btc/cu_btc.py`):
+molecules (`examples/08_cu_btc_from_scratch/cu_btc_from_scratch.py`):
 
 ```python
 framework = epsr.Framework.from_pdb("CuBTC.pdb", types=[CU, O, C1, C2, C3, H],
@@ -428,8 +428,8 @@ partials, the empirical potential, coordination numbers and bond angles. With
 the `viewer` extra, `epsr.vis.viewer.ConfigurationViewer(trajectory).show()`
 opens a 3D view of the configuration next to the partial g(r), with a slider
 over the iterations. `screenshot()` and `movie()` (GIF or MP4) work off-screen.
-`examples/05_experimental_water.py` and `examples/06_experimental_SiO2.py`
-end with these figures.
+The examples on real data (`examples/05_*` to `examples/10_*`) end with these
+figures.
 
 `epsr.vis` needs the `plot` extra (matplotlib, scipy); it can always be imported,
 and `epsr.vis.available()` says whether the extra is installed (without it, any
