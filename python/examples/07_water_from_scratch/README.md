@@ -22,6 +22,10 @@ uv run python examples/07_water_from_scratch/water_from_scratch.py --quick    # 
 uv run python examples/07_water_from_scratch/water_from_scratch.py --seed 42  # another starting box
 ```
 
+With `epsr-py` installed by pip instead (`pip install "./python[plot]"` from the
+repository root, see the [top-level README](../../../README.md#1-installation)), run
+`python python/examples/07_water_from_scratch/water_from_scratch.py` from the root.
+
 The schedule is that of `validation/water/steps.txt`: `project.equilibrate(iterations=100)`
 is the scratch start (1 iteration, which creates the `.pcof` file) plus 99 iterations on
 the reference potential, and `project.refine(ereq=3.0, runs=2, iterations=100)` two runs

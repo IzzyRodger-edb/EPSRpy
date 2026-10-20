@@ -18,23 +18,165 @@ Everything is MIT-licensed (see [LICENSE](LICENSE)).
 
 ---
 
-## 1. Quick start
+## 1. Installation
 
-Tested on Linux (including WSL2 on Windows).
+The Python package is called **`epsr-py`** and is imported as `epsr`. It contains the compiled Rust engine, so once installed it needs only Python ≥ 3.10 and NumPy. It is tested on Linux, including WSL2 on Windows.
 
-| tool | why | install (Ubuntu / WSL) |
-|---|---|---|
-| Rust toolchain (stable, ≥ 1.85) | builds the engine | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| C compiler and linker | needed by the Rust and Python builds | `sudo apt install build-essential` |
-| Python ≥ 3.10 | the Python package | usually present; `sudo apt install python3` |
-| [uv](https://docs.astral.sh/uv/) | Python package management | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| `gfortran` (optional) | only to rebuild the original Fortran and re-run the comparison | `sudo apt install gfortran` |
+### Linux dependencies
+
+What you need depends on how you install. A **pre-built wheel** contains the compiled engine, so it needs only Python. Installing **from source** compiles the engine, which needs a Rust toolchain and a C compiler. A source install is any of: a GitHub URL, a clone, the source distribution, or a platform with no wheel.
+
+| dependency | wheel | from source | why |
+|---|:---:|:---:|---|
+| Python ≥ 3.10 with `venv` | ✔ | ✔ | the package; `venv` creates the virtual environment it is installed into |
+| pip ≥ 21.3 | ✔ | ✔ | older pip does not recognise the manylinux wheels (before 19.3) or cannot build from a folder that refers to `../rust` (before 21.3) |
+| git | | ✔ | to clone the repository, or for pip to fetch it from GitHub |
+| Rust toolchain (stable, ≥ 1.85) | | ✔ | compiles the engine (`rustc`, `cargo`) |
+| C compiler and linker (`cc`) | | ✔ | Rust links the extension module with the system linker |
+| internet access while installing | ✔ | ✔ | pip downloads NumPy; from source, also the build tool (maturin), and cargo downloads the Rust crates (PyO3, rayon) |
+| OpenGL, EGL and X11 libraries | `viewer` extra only | `viewer` extra only | the 3D viewer (VTK, through pyvista) loads them at run time |
+
+matplotlib, SciPy, NumPy, pandas and VTK all come as wheels with their own compiled code. They need no other system packages.
+
+**Debian / Ubuntu / WSL2:**
 
 ```bash
-# the Python package: refine water against real SANDALS data
+sudo apt update
+sudo apt install python3 python3-venv python3-pip git build-essential curl
+sudo apt install libgl1 libegl1 libx11-6 libxcursor1          # only for the viewer extra
+```
+
+**Fedora / RHEL / Rocky / AlmaLinux:**
+
+```bash
+sudo dnf install python3 python3-pip git gcc curl
+sudo dnf install mesa-libGL mesa-libEGL libX11 libXcursor     # only for the viewer extra
+```
+
+**Arch / Manjaro:**
+
+```bash
+sudo pacman -S python python-pip git base-devel curl
+sudo pacman -S mesa libglvnd libx11 libxcursor                # only for the viewer extra
+```
+
+**Rust (all distributions).** Install Rust with [rustup](https://rustup.rs), not the distribution's package: those are often older than 1.85 (Ubuntu 24.04 ships 1.75). rustup installs into your home folder and needs no `sudo`:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"           # or open a new terminal
+rustup update stable                # later, to update an existing installation
+```
+
+**If the distribution's Python is older than 3.10** (Debian 11, Ubuntu 20.04, RHEL 8), get a newer one without touching the system Python, for example with [uv](https://docs.astral.sh/uv/):
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv python install 3.12
+uv venv -p 3.12 .venv               # use this in place of `python3 -m venv .venv` below
+```
+
+**Check what you have:**
+
+| check | expect |
+|---|---|
+| `python3 --version` | 3.10 or later |
+| `python3 -m venv --help` | a usage message (on Debian/Ubuntu, an error means `python3-venv` is missing) |
+| `python3 -m pip --version` | 21.3 or later inside the virtual environment; update it with `pip install --upgrade pip` |
+| `git --version` | any version |
+| `rustc --version` and `cargo --version` | 1.85 or later |
+| `cc --version` | any version (gcc or clang) |
+
+Two optional tools are for development only: [uv](https://docs.astral.sh/uv/), for the development setup below, and `gfortran` (`sudo apt install gfortran`, `sudo dnf install gcc-gfortran`, `sudo pacman -S gcc-fortran`), to rebuild the original Fortran and re-run the comparison.
+
+### Install with pip
+
+Use a virtual environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate           # Windows: .venv\Scripts\activate
+pip install --upgrade pip
+```
+
+Recent Debian, Ubuntu and Arch releases refuse `pip install` outside a virtual environment ("externally-managed-environment"). That is expected, and the environment above avoids it.
+
+**Straight from GitHub.** pip clones the repository and compiles the engine:
+
+```bash
+pip install "epsr-py[plot] @ git+https://github.com/IzzyRodger-edb/EPSRpy#subdirectory=python"
+```
+
+**From a clone.** Do this if you also want the examples and the measured data they use:
+
+```bash
+git clone https://github.com/IzzyRodger-edb/EPSRpy
+cd EPSRpy
+pip install "./python[plot]"
+```
+
+The first build compiles the engine in release mode, which takes about 5–10 minutes. Then check the installation:
+
+```bash
+python -c "import epsr; print(epsr.__version__, epsr.VERSION_DATE)"     # 0.1.0 26: 2017-03-10
+```
+
+The optional extras go in the square brackets, separated by commas (e.g. `[plot,viewer]`):
+
+| extra | adds | for |
+|---|---|---|
+| `plot` | matplotlib, scipy | `epsr.plot` figures and the `epsr.vis` refinement analysis |
+| `viewer` | pyvista, imageio, imageio-ffmpeg | 3D configuration views and movies |
+| `pandas` | pandas | tables as DataFrames |
+| `progress` | tqdm | progress bars in refinement loops |
+| `all` | all of the above | |
+
+Installing also adds the `epsrvis` command, which draws reports, 3D views and movies of a recorded refinement (`epsrvis --help`).
+
+**Pre-built wheels.** A wheel carries the compiled engine, so it installs in seconds with no Rust toolchain. The engine is built for Python's stable ABI, so one wheel per platform serves every Python ≥ 3.10. Once a release is on PyPI, installing is simply:
+
+```bash
+pip install "epsr-py[plot]"
+```
+
+Until then, you can build a wheel from a clone and install it on any machine with the same platform:
+
+```bash
+pip install maturin
+maturin build --release --strip -m python/Cargo.toml --out dist
+pip install dist/epsr_py-*.whl
+```
+
+A wheel built this way works only on machines with the same or a newer glibc than the one it was built on. The workflow [`.github/workflows/wheels.yml`](.github/workflows/wheels.yml) builds portable wheels for Linux (manylinux2014, x86_64 and aarch64), macOS (Intel and Apple silicon) and Windows, plus the source distribution. Run it by hand from the Actions tab to only build them, or push a version tag such as `v0.1.0` to build them and publish them to PyPI. Publishing needs a one-time setup on pypi.org: register this repository as a trusted publisher for `epsr-py`, with workflow `wheels.yml` and environment `pypi`. The version number is the one in [`python/Cargo.toml`](python/Cargo.toml).
+
+### Updating
+
+pip installs a new copy only when it sees a **new version number** (the `version` in [`python/Cargo.toml`](python/Cargo.toml), which is also `epsr.__version__`). The exception is a local folder, which pip always rebuilds:
+
+| installed from | to update |
+|---|---|
+| PyPI | `pip install --upgrade epsr-py` (fetches the newest release) |
+| a clone | `git pull`, then `pip install "./python[plot]"` again (rebuilds even if the version is unchanged) |
+| a GitHub URL | the same `pip install` command with `--force-reinstall`, unless the version number has gone up (otherwise pip reports "already satisfied" and keeps the old build) |
+| a wheel file | the new wheel, with `--force-reinstall` if it has the same version |
+
+### Run the examples
+
+The examples read the measured data in `experimental_data/`, so run them from a clone. They work with any installation of the package:
+
+```bash
+python python/examples/07_water_from_scratch/water_from_scratch.py --quick   # about 1 minute
+python python/examples/05_experimental_water.py --quick
+```
+
+### Development setup
+
+To work on the package itself, use uv. It creates `python/.venv` with the extension installed in editable mode, together with the test and lint tools, and rebuilds the extension whenever the Rust code changes:
+
+```bash
 cd python && uv sync --all-extras          # compiles the Rust engine on first sync
 uv run python examples/05_experimental_water.py --quick
-uv run pytest
+uv run pytest -m "not slow" -n 4           # the quick tests; plain `uv run pytest` runs them all
 
 # the engine on its own, as a drop-in replacement for the Fortran `epsr`
 cd ../rust && cargo build --release && cargo test --release
@@ -42,7 +184,7 @@ cd ../rust && cargo build --release && cargo test --release
 
 ## 2. The Python package
 
-[`python/`](python/README.md) is a PyO3 extension built with `uv sync`. It calls the Rust engine's public API unchanged, so its output is still byte-identical to the Fortran:
+[`python/`](python/README.md) is a PyO3 extension, installed with pip or, for development, `uv sync` (see [section 1](#1-installation)). It calls the Rust engine's public API unchanged, so its output is still byte-identical to the Fortran:
 
 ```python
 import epsr
@@ -242,7 +384,7 @@ project.refine(ereq=10.0, runs=2, iterations=100)
 
 The complete script is [example 08](python/examples/08_cu_btc/cu_btc.py). **Validation:** the box after `readpdb` and after `changeato`, and the folder before the first EPSR run, are byte-identical to the validated `validation/cu-btc/steps.txt` calculation. After each of the four EPSR runs, every file is byte-identical to the same steps run by the earlier Python wrapper route, and to the `epsr-rs` CLI after the full schedule (`tests/test_framework.py`). EPSR enumerates the expected 80 726 Bragg reflections at 940 unique Q values.
 
-**Python and CLI agree; the archived Fortran reference does not, in the last digits.** Against `validation/cu-btc/fortran_reference.tar.gz`, the reference-potential table `.o01` differs in its 7th significant digit from the first iteration on. The Monte Carlo then carries this into the last digits of `.erg`, `.inpa`, `.out` and `fort.35`. After the third EPSR run, one pressure in `.out` differs by one unit in its last digit (0.787812E+01 against 0.787813E+01), which fails the comparison. Every other file, including the configuration, the g(r), the F(Q) and the Bragg files, is identical. The Fortran built on this machine gives exactly the Rust and Python results at every step, so the archive (made on another machine) is a platform-specific reference: most likely a different libm rounding of single-precision `powf`/`expf`, the effect `python/docs/testing.md` already documents for the EPSR-test `.o01`. [`docs/plans/cu_btc_fortran_discrepancy.md`](docs/plans/cu_btc_fortran_discrepancy.md) is the briefing for resolving it: the evidence, a hypothesis, how to test it, and the options.
+**Against the original Fortran:** every file is also byte-identical to the Fortran's after each EPSR run (`validation/cu-btc/fortran_reference.tar.gz`). The comparison needs a correctly rounded single-precision `sinhf`, i.e. glibc 2.42 or later. With an older glibc, the reference-potential table differs in its 7th significant digit, and the Monte Carlo carries that into the last digits of the energies. The tests then skip that comparison. [`docs/plans/cu_btc_fortran_discrepancy.md`](docs/plans/cu_btc_fortran_discrepancy.md) records the investigation, and `python/docs/testing.md` the rule.
 
 The figures below come from the water case: 1000 water molecules fitted to three SANDALS measurements, starting from a random box.
 
@@ -291,7 +433,8 @@ Key references: Soper, *Chem. Phys.* **202**, 295 (1996); Soper, *Phys. Rev. B* 
 
 | path | contents |
 |---|---|
-| [`python/`](python/README.md) | the `epsr` Python package (PyO3): bindings, `epsr.vis`, examples, tests, user guide and API reference |
+| [`python/`](python/README.md) | the `epsr` Python package (PyO3, distributed as `epsr-py`): bindings, `epsr.vis`, examples, tests, user guide and API reference |
+| [`.github/workflows/`](.github/workflows/wheels.yml) | builds the wheels and source distribution of `epsr-py` and publishes them to PyPI on a version tag |
 | [`rust/`](rust/README.md) | the Rust engine (`epsr-core`), the drop-in CLI `epsr-rs`, the Fortran reference build and comparison tools, and the architecture, Fortran-map and validation docs |
 | [`fortran_src/`](fortran_src) | the original Fortran, untouched |
 | [`EPSR-test/`](EPSR-test) | the original 200 DMSO / 400 water test case, the base of the test problems |

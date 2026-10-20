@@ -20,6 +20,19 @@ cd python && uv run pytest tests/test_cu_btc.py
 `fortran_reference.tar.gz` holds the Fortran folder after each EPSR run
 (made by `make_fortran_reference.py FORTRAN_BUILD_DIR fortran_reference.tar.gz`).
 
+The archive was regenerated on 2026-10-20 on Ubuntu 26.04 (WSL2, x86-64), glibc 2.43,
+gfortran 15.2.0, with the default (scalar) `rust/tools/build_fortran_reference.sh`
+build. Two things matter for reproducing it bit for bit:
+
+* **glibc ≥ 2.42.** The reference potential's Lennard-Jones term calls the
+  single-precision `sinhf`, which glibc rounds correctly only from 2.42 on. The
+  first archive was made on glibc 2.39, whose `sinhf` is 1 ulp off for about 10 %
+  of arguments. Its `.o01` differed in the 7th digit and its energies in the last
+  digits (`docs/plans/cu_btc_fortran_discrepancy.md`). The Python tests skip the
+  comparison with this archive on such a libm.
+* **No `--vectorize`.** A vectorised build calls glibc's SIMD `sinf`/`expf` in
+  the transforms, and the Monte Carlo then diverges from the scalar results.
+
 ## How the inputs were made
 
 * **`make_pdb.py` → `CuBTC.pdb`.** EPSR cannot hold a periodic network as one

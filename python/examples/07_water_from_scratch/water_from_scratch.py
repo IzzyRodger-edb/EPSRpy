@@ -6,6 +6,9 @@ Run from the ``python/`` folder:
     uv run python examples/07_water_from_scratch/water_from_scratch.py --quick    # ~30 s
     uv run python examples/07_water_from_scratch/water_from_scratch.py --seed 42  # another starting box
 
+or, with ``epsr-py`` installed by pip (see the top-level README), from anywhere in the
+repository clone: ``python python/examples/07_water_from_scratch/water_from_scratch.py``.
+
 1000 water molecules are built from scratch and fitted to three SANDALS measurements
 (H2O, D2O and HDO 50:50). The schedule is that of ``validation/water/steps.txt``:
 equilibrate for 100 iterations on the reference potential, then two runs of 100

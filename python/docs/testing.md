@@ -151,6 +151,12 @@ with the archive under the tolerance policy below; files that agree only in the
 last digits trigger a replay with the `epsr-rs` CLI, whose final folder must be
 byte-identical to the wrapper's.
 
+The archive was made with a Fortran build on glibc 2.43, whose single-precision
+`sinhf` is correctly rounded (see [libm and the Fortran
+references](#libm-and-the-fortran-references)). On a libm without a correctly
+rounded `sinhf` the archive comparisons are skipped with that reason; the rest of
+the module still runs.
+
 Results on the development machine: **every file byte-identical to the Fortran
 after every run** (34 to 36 files per snapshot, including the Bragg files
 `.bragg` and `.inten`). Further checks: the molecules and atom types `readpdb`
@@ -184,7 +190,8 @@ on this platform, not from the wrapper.
 
 ## Results on the development machine
 
-Linux (WSL2), glibc 2.39, Rust 1.99, Python 3.12, 17 October 2026:
+Linux (WSL2), glibc 2.39, Rust 1.99, Python 3.12, 17 October 2026 (an older glibc
+than the one the references were made with: see the next section):
 
 | | cases |
 |---|---|
@@ -211,13 +218,34 @@ byte-identical to the `epsr-rs` CLI's and checks that the divergence is present.
 The CLI is rebuilt with cargo before use, so it always matches the engine the
 wrapper was built against.
 
-The Rust engine's own regression test shows the same behaviour on this machine:
-`cargo test --release` in `rust/` reports `200DMSO400Water.EPSR.o01` as differing
-from the Fortran hash. That table holds values of order 1e13 at very small r,
-and their 7th significant digit depends on the libm rounding of `powf`, which
-differs between glibc versions. `test_reference.py` reports this one file as a
-warning instead of a failure unless `EPSR_STRICT=1`; `test_ex_cases.py` checks its
-numbers within the tolerance above.
+## libm and the Fortran references
+
+The engine and the Fortran both take their single-precision maths functions from
+the platform's libm, so they agree byte for byte on any one machine. Between
+machines, one function matters: `sinhf`, called by the Lennard-Jones term of the
+reference potential (`generate_rp`). glibc 2.41 replaced its fdlibm `sinhf`, which
+is 1 ulp off for about 10 % of arguments, by the correctly rounded CORE-MATH one
+(2.42 fixed its last rounding bug). With glibc <= 2.40 the reference-potential
+table `.o01`, whose values reach 1e13 at very small r, differs in its 7th
+significant digit, and the Monte Carlo carries that into the last digits of
+`.erg`, `.out`, `.inpa`, `.terg` and `fort.35`. `expf`, `logf` and `powf` have not
+changed since glibc 2.28. The investigation is in
+`docs/plans/cu_btc_fortran_discrepancy.md`.
+
+The Fortran references that this suite and the Rust test compare with bit for
+bit, the EPSR-test hashes (`rust/epsr-core/tests/reference_hashes.txt`) and the
+Cu-BTC archive, were made with a correctly rounded `sinhf`. They are reproducible
+exactly only with one, i.e. glibc >= 2.42; regenerate them on such a machine.
+`epsr_cases.HAS_CORRECTLY_ROUNDED_SINHF` checks the platform's `sinhf` on one
+argument the reference potential uses. Without a correctly rounded `sinhf`:
+
+* `test_reference.py` reports `200DMSO400Water.EPSR.o01` as a warning rather
+  than a failure (unless `EPSR_STRICT=1`), and `cargo test --release` in `rust/`
+  reports it as differing from the Fortran hash;
+* `test_cu_btc.py` and `test_framework.py` skip the comparison with the Cu-BTC
+  archive;
+* `test_ex_cases.py` and `test_experimental_data.py` are unaffected: the first
+  compares with a tolerance, the second with a Fortran build on the same machine.
 
 ## Adding a test
 

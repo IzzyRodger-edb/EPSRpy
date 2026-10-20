@@ -7,6 +7,8 @@ so that the wrapper is held to exactly the same standard as the ``epsr-rs`` CLI.
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import functools
 import importlib.util
 import os
@@ -14,6 +16,7 @@ import platform
 import re
 import shlex
 import shutil
+import struct
 import subprocess
 import sys
 import tarfile
@@ -37,6 +40,43 @@ REQUIRE_IDENTICAL = os.environ.get("EPSR_STRICT", "") not in ("", "0")
 RELATIVE_TOLERANCE = 1e-5
 ABSOLUTE_TOLERANCE_FRACTION = 1e-5
 IS_GLIBC = platform.system() == "Linux" and platform.libc_ver()[0] == "glibc"
+
+
+def _has_correctly_rounded_sinhf() -> bool:
+    """True when the platform's single-precision ``sinhf`` is correctly rounded.
+
+    The reference-potential table (``generate_rp``) calls ``sinhf`` in its
+    Lennard-Jones term, and the engine and the Fortran both take it from the
+    platform's libm. glibc >= 2.42 rounds it correctly (CORE-MATH); glibc <= 2.40
+    uses the fdlibm code, 1 ulp off for about 10 % of arguments, which changes the
+    7th digit of ``.o01`` and then the last digits of the Monte Carlo results. The
+    Fortran references (the EPSR-test hashes, the Cu-BTC archive) were made with a
+    correctly rounded ``sinhf``, so they are reproducible byte for byte only then.
+    The test argument is one ``generate_rp`` evaluates for EPSR-test and Cu-BTC.
+    """
+    try:
+        # Look sinhf up in the process's global scope, the way the engine's call is
+        # resolved, so that an interposed libm (LD_PRELOAD) is seen too.
+        sinhf = ctypes.CDLL(None).sinhf
+    except (OSError, AttributeError):
+        try:
+            sinhf = ctypes.CDLL(ctypes.util.find_library("m") or "libm.so.6").sinhf
+        except (OSError, AttributeError):
+            return False
+    sinhf.argtypes, sinhf.restype = [ctypes.c_float], ctypes.c_float
+    argument = struct.unpack("<f", struct.pack("<I", 0x4116D29A))[0]  # 9.4264164
+    result = struct.unpack("<I", struct.pack("<f", sinhf(argument)))[0]
+    return result == 0x45C1EFDF  # glibc <= 2.40 gives 0x45C1EFDE
+
+
+#: The platform's libm reproduces the Fortran references (see the function above).
+HAS_CORRECTLY_ROUNDED_SINHF = _has_correctly_rounded_sinhf()
+#: Why a comparison with a Fortran reference is skipped when it does not.
+OLD_SINHF_REASON = (
+    "this libm's sinhf is not correctly rounded (glibc < 2.42?), so the "
+    "reference-potential table differs from the Fortran references in its 7th "
+    "digit; see python/docs/testing.md"
+)
 
 #: Files of a case folder that are not inputs of the case.
 CASE_FILES_TO_SKIP = {"commands.txt", "README.md", ".gz", ".pdf"}
