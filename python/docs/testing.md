@@ -43,7 +43,7 @@ Fortran did not also fail the test.
 | `test_refine.py` | the run loop, `.erg` growth, callbacks, early stopping, overrides, snapshots, CSV and pandas export |
 | `test_tools.py` | `nwts` rebuilds the shipped `.wts` files byte for byte, keyword tables, `write_keyword_file` round trip, interactive answers, the deliberate `makeato` crash maps to `EpsrUnsupportedError` |
 | `test_threads.py` | GIL release, parallel runs equal sequential runs, `refine_many`, tools from several threads; byte-identical results with 1 and 4 engine (rayon) threads for a cubic and a triclinic box; concurrent cubic and triclinic runs sharing the rayon pool equal their sequential runs |
-| `test_examples.py` | the six example scripts run (the long ones in their short mode, without the 3D image) |
+| `test_examples.py` | every example script except 07 runs (the long ones in their short mode, without the 3D image; 08–10 are `slow`), and every example folder has a README |
 | `test_plot.py` | the plotting helpers draw |
 | `test_vis.py` | `epsr.vis`: a recorded run or refinement leaves every file identical to an unrecorded one; per-iteration R-factors equal EPSR's; the report and save/load work |
 | `test_core_accessors.py` | the setup API's engine accessors: keyword table and its file routing, isotope table, `set_rng_seed` (the seed table of the plan, §1.7), pair parameters (Lorentz–Berthelot, EPSR-test-ex1 `.pcof` extras) |

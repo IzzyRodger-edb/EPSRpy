@@ -1,27 +1,38 @@
 """Repeated EPSR runs with convergence monitoring, as the EPSR shell loop does.
 
-Run from the ``python/`` folder:  uv run python examples/02_refinement_loop.py [n_runs]
+Run from the ``python/`` folder:
+
+    uv run python examples/02_refinement_loop/refinement_loop.py        # 10 runs, ~30 s
+    uv run python examples/02_refinement_loop/refinement_loop.py --runs 3
+
+Continues the refinement of a copy of the DMSO/water test case (``template/``, from ``EPSR-test/``) for a
+number of EPSR runs. Each run is reported as it finishes, the loop stops early once the
+fit is good enough, and the folder is copied every five runs so that an earlier state
+can be restored. Everything goes to ``output/`` next to this script.
 """
 
+import argparse
 import os
-import sys
 from pathlib import Path
 
 import epsr
 
-EXAMPLES_FOLDER = Path(__file__).resolve().parent
-TEMPLATE = EXAMPLES_FOLDER.parents[1] / "EPSR-test"
-OUTPUT_ROOT = Path(
-    os.environ.get("EPSR_EXAMPLES_WORK", EXAMPLES_FOLDER.parent / "work")
-)
-WORK_FOLDER = OUTPUT_ROOT / "02_refine"
-N_RUNS = int(sys.argv[1]) if len(sys.argv) > 1 else 10
+EXAMPLE_FOLDER = Path(__file__).resolve().parent
+TEMPLATE = (
+    EXAMPLE_FOLDER / "template"
+)  # the run files of EPSR-test/: 200 DMSO + 400 water
+OUTPUT = Path(os.environ.get("EPSR_EXAMPLES_WORK", EXAMPLE_FOLDER)) / "output"
 TARGET_R_FACTOR = 1.0e-4
 
-project = epsr.Project.from_template(TEMPLATE, WORK_FOLDER, overwrite=True)
+parser = argparse.ArgumentParser()
+parser.add_argument("--runs", type=int, default=10, help="number of EPSR runs")
+options = parser.parse_args()
+
+project = epsr.Project.from_template(TEMPLATE, OUTPUT / "epsr_run", overwrite=True)
 
 
 def report_progress(run_number: int, simulation: epsr.Simulation) -> None:
+    """Called after every run; returning True would stop the loop."""
     summary = simulation.summary
     print(
         f"run {run_number:3d}  R {summary.r_factor:.4e}  E {summary.energy:8.3f}  "
@@ -34,28 +45,30 @@ def target_reached(history: epsr.History) -> bool:
     return history.r_factor[-1] < TARGET_R_FACTOR
 
 
-history = epsr.refine(
-    project,
-    n_runs=N_RUNS,
-    overrides={"ntimes": 5},
+# ereq is left as it is in the files (10 kJ/mol); each run has the files' niter (1)
+# iterations of ntimes = 5 Monte Carlo cycles.
+history = project.refine(
+    runs=options.runs,
+    ntimes=5,  # EPSR keyword: it persists in the files
     callback=report_progress,
     until=target_reached,
-    snapshot_every=5,
-    progress=False,
+    snapshot_every=5,  # copies to output/epsr_run.snapshots/
 )
 
 print(
-    f"{len(history)} runs; R-factor {history.r_factor[0]:.4e} -> {history.r_factor[-1]:.4e}"
+    f"{len(history)} runs; R-factor {history.r_factor[0]:.4e} -> "
+    f"{history.r_factor[-1]:.4e}"
 )
-csv_file = history.to_csv(OUTPUT_ROOT / "02_history.csv")
-print("history written to", csv_file)
+print("columns:", ", ".join(history.columns))
+print("history written to", history.to_csv(OUTPUT / "history.csv"))
+print("whole .erg record:", len(project.history()), "iterations")  # every run ever made
 
 try:
     import matplotlib
 
     matplotlib.use("Agg")  # write the figure to a file, no display needed
     axes = epsr.plot.history(history)
-    plot_file = OUTPUT_ROOT / "02_history.png"
+    plot_file = OUTPUT / "history.png"
     axes[0].figure.savefig(plot_file, dpi=120)
     print("plot written to", plot_file)
 except ImportError:

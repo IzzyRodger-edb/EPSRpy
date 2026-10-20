@@ -1,6 +1,14 @@
-"""One EPSR run on a copy of the DMSO/water test case, then inspect the results.
+"""One EPSR run on a copy of the DMSO/water test case, then read the results.
 
-Run from the ``python/`` folder:  uv run python examples/01_single_run.py
+Run from the ``python/`` folder:
+
+    uv run python examples/01_single_run/single_run.py    # a few seconds
+
+``template/`` holds the run files of the DMSO/water test case ``EPSR-test/`` (200
+DMSO + 400 water, three SANDALS datasets). It is a finished EPSR folder: its box,
+potential, accumulated results and weights already exist, so EPSR can continue from it
+straight away. The folder is copied first, because every EPSR run rewrites its input
+files in place. Everything goes to ``output/`` next to this script.
 """
 
 import os
@@ -10,65 +18,51 @@ import numpy as np
 
 import epsr
 
-EXAMPLES_FOLDER = Path(__file__).resolve().parent
+EXAMPLE_FOLDER = Path(__file__).resolve().parent
 TEMPLATE = (
-    EXAMPLES_FOLDER.parents[1] / "EPSR-test"
-)  # 200 DMSO + 400 water, three neutron datasets
-OUTPUT_ROOT = Path(
-    os.environ.get("EPSR_EXAMPLES_WORK", EXAMPLES_FOLDER.parent / "work")
-)
-WORK_FOLDER = OUTPUT_ROOT / "01_single_run"
+    EXAMPLE_FOLDER / "template"
+)  # the run files of EPSR-test/: 200 DMSO + 400 water
+OUTPUT = Path(os.environ.get("EPSR_EXAMPLES_WORK", EXAMPLE_FOLDER)) / "output"
 
-# Copy the folder first: every EPSR run rewrites its input files in place.
-project = epsr.Project.from_template(TEMPLATE, WORK_FOLDER, overwrite=True)
+# --- 1. Open a copy of the folder ------------------------------------------------------
+project = epsr.Project.from_template(TEMPLATE, OUTPUT / "epsr_run", overwrite=True)
+print(project.status())  # already run; iterations accumulated; ereq; 3 datasets ...
 
-# Read the inputs, overriding two run parameters (saved back to the .EPSR.inp file).
-simulation = project.simulation(overrides={"ntimes": 5, "niter": 1})
-print(simulation)
-
-summary = simulation.run()  # releases the GIL while the Rust engine runs
+# --- 2. One EPSR run ------------------------------------------------------------------
+# EPSR keywords are given by their own names and checked against EPSR's keyword table;
+# EPSR saves them back to its files, so they also apply to later runs.
+summary = project.run(iterations=1, ntimes=5)  # releases the GIL while the engine runs
 print(f"R-factor {summary.r_factor:.4e}")
 print(
-    f"energy   {summary.energy:.3f} kJ/mol per molecule, pressure {summary.pressure:.3f} kbar"
+    f"energy   {summary.energy:.3f} kJ/mol per molecule, "
+    f"pressure {summary.pressure:.3f} kbar"
 )
 
-# Grids and per-dataset fits
-q_grid, r_grid = simulation.q, simulation.r
-print(f"Q grid: {q_grid.size} points up to {q_grid[-1]:.2f} 1/Å")
-print(f"r grid: {r_grid.size} points up to {r_grid[-1]:.2f} Å")
-for dataset_index, dataset in enumerate(simulation.datasets):
-    fit = simulation.fit(dataset_index)
-    root_mean_square_residual = float(np.sqrt(np.mean(fit.residual**2)))
+# --- 3. Results -----------------------------------------------------------------------
+result = project.results()  # read-only Simulation of the folder
+print(f"Q grid: {result.q.size} points up to {result.q[-1]:.2f} 1/Å")
+print(f"r grid: {result.r.size} points up to {result.r[-1]:.2f} Å")
+for name in project.dataset_names:  # the data-file names of the test case
+    fit = result.fit(name)  # select a dataset by name (or index)
+    rms = float(np.sqrt(np.mean(fit.residual**2)))
     print(
-        f"  dataset {dataset_index} {dataset.name:12s} Q {fit.q[0]:.2f}..{fit.q[-1]:.2f}  "
-        f"rms(data - fit) = {root_mean_square_residual:.4f}"
+        f"  {name:12s} Q {fit.q[0]:.2f}-{fit.q[-1]:.2f} 1/Å, rms(data - fit) = {rms:.4f}, "
+        f"R = {summary.r_factor_for(name):.2e}"
     )
-
-# Partial g(r) and the empirical potential are (n_pairs, nr) float32 arrays.
-empirical_potential = simulation.potential.empirical()
-print("pairs:", simulation.pair_labels[:6], "...")
 
 # Atom types: S, C, O, H belong to DMSO; O1, H1 to water.
-short_distances = r_grid < 4.0
-pairs_to_show = (
-    ("O1", "H1", "water-water hydrogen bond"),
-    ("O", "H1", "DMSO O ... water H"),
-)
-for first_type, second_type, meaning in pairs_to_show:
-    gr = simulation.gr_inter(first_type, second_type)
-    first_peak = r_grid[short_distances][np.argmax(gr[short_distances])]
-    pair_name = f"{first_type}-{second_type}"
-    print(
-        f"{pair_name} intermolecular g(r): first peak at {first_peak:.2f} Å ({meaning})"
-    )
+print("pairs:", result.pair_labels[:6], "...")
+for a, b, window, meaning in (
+    ("O1", "H1", (1.5, 2.3), "water-water hydrogen bond"),
+    ("O", "H1", (1.5, 2.3), "DMSO O ... water H"),
+):
+    peak = epsr.analysis.first_peak(result.r, result.gr_inter(a, b), window)
+    print(f"{a}-{b} intermolecular g(r): first peak at {peak:.2f} Å ({meaning})")
 
+# Partial g(r) and the potentials are (n_pairs, nr) float32 arrays.
+empirical = result.potential.empirical()
+print(f"EP range: {empirical.min():.3f} .. {empirical.max():.3f} kJ/mol")
 print(
-    f"EP range: {empirical_potential.min():.3f} .. {empirical_potential.max():.3f} kJ/mol"
-)
-print(
-    "positions:",
-    simulation.positions.shape,
-    "Å, box",
-    round(simulation.box_size, 3),
-    "Å",
+    f"configuration: {result.positions.shape} positions (Å), "
+    f"box {result.box_size:.3f} Å"
 )

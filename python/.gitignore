@@ -11,3 +11,7 @@ __pycache__/
 .ruff_cache/
 # Output of the example scripts
 work/
+
+# Output of the example scripts (example 07 commits its run as a reference)
+examples/*/output/
+!examples/07_water_from_scratch/output/

@@ -1,178 +1,115 @@
-"""Refine liquid water against real neutron data (SANDALS: H2O, D2O and HDO 50:50).
+"""Refine liquid water from existing EPSR input files, run within the Python framework.
 
 Run from the ``python/`` folder:
 
-    uv run python examples/05_experimental_water.py            # full schedule, ~4 minutes
-    uv run python examples/05_experimental_water.py --quick    # 10 iterations per run, ~30 s
-    uv run python examples/05_experimental_water.py --no-3d    # skip the 3D (pyvista) image
+    uv run python examples/05_water_existing_epsr_files/water_existing_files.py           # ~4 minutes
+    uv run python examples/05_water_existing_epsr_files/water_existing_files.py --quick   # ~30 s
 
-The system (1000 water molecules at 0.1 atoms/Å³, 300 K) is built from scratch with
-the EPSR setup programs, equilibrated on the reference potential and then refined
-with the empirical potential, following ``validation/water/steps.txt``. The setup
-inputs (molecule template, neutron-weight files, EPSR input file) come from
-``validation/water/``; the measured data come from ``experimental_data/water/data/``.
+The starting point is a set of EPSR input files written for the Fortran EPSR, as an
+existing project would have them: the molecule template ``Water.mol``, one
+``.NWTS.dat`` weights file per sample and the run-control file ``waterbox.EPSR.inp``
+(in ``template/``, copied from ``validation/water/``), plus the three SANDALS
+measurements (H2O, D2O and HDO 50:50). EPSR's own setup programs build the box from them, called from Python, and
+:class:`epsr.Project` then runs the schedule of ``validation/water/steps.txt``:
+equilibrate for 100 iterations on the reference potential, then two runs of 100
+iterations with the empirical potential (EReq 3 kJ/mol).
 
-With the ``plot`` extra installed, every EPSR iteration is recorded (``epsr.vis``)
-and the script ends with figures of the whole refinement in
-``work/05_experimental_water_figures/``: convergence, F(Q) fits, partials, empirical
-potential, local structure, a comparison of the partial g(r) with the experimental
-partials of Soper (2000), and (``viewer`` extra) the 3D configuration. Recording only
-reads results: the numbers are the same as without it.
+This is the same calculation as example 07, which defines every input in Python
+instead; the two folders are byte-identical. Everything goes to ``output/`` next to
+this script.
 """
 
+import argparse
 import os
 import shutil
-import sys
 from pathlib import Path
 
 import epsr
-from epsr import tools, vis
+from epsr import tools
 
-# vis.available() is False without the 'plot' extra (matplotlib, scipy)
+EXAMPLE_FOLDER = Path(__file__).resolve().parent
+REPOSITORY = EXAMPLE_FOLDER.parents[2]
+EPSR_INPUTS = (
+    EXAMPLE_FOLDER / "template"
+)  # written for the Fortran EPSR (water of validation/)
+DATA = REPOSITORY / "experimental_data" / "water" / "data"
+OUTPUT = Path(os.environ.get("EPSR_EXAMPLES_WORK", EXAMPLE_FOLDER)) / "output"
+SAMPLES = ("D2O", "HDO", "H2O")  # the order of the data blocks in waterbox.EPSR.inp
 
-EXAMPLES_FOLDER = Path(__file__).resolve().parent
-REPOSITORY = EXAMPLES_FOLDER.parents[1]
-SETUP_INPUTS = REPOSITORY / "validation" / "water"
-NEUTRON_DATA = REPOSITORY / "experimental_data" / "water" / "data"
-REFERENCE_PARTIALS = REPOSITORY / "experimental_data" / "water" / "reference_partials"
-OUTPUT_ROOT = Path(
-    os.environ.get("EPSR_EXAMPLES_WORK", EXAMPLES_FOLDER.parent / "work")
-)
-WORK_FOLDER = OUTPUT_ROOT / "05_experimental_water"
-FIGURE_FOLDER = OUTPUT_ROOT / "05_experimental_water_figures"
+parser = argparse.ArgumentParser()
+parser.add_argument("--quick", action="store_true", help="10 iterations per run")
+options = parser.parse_args()
+EQUILIBRATION = 11 if options.quick else 100  # includes the 1-iteration scratch start
+REFINEMENT = 10 if options.quick else 100
 
-QUICK = "--quick" in sys.argv
-DRAW_3D = "--no-3d" not in sys.argv
-EQUILIBRATION_ITERATIONS = 10 if QUICK else 99
-REFINEMENT_ITERATIONS = 10 if QUICK else 100
-REQUESTED_EP_AMPLITUDE = 3.0  # kJ/mol, EReq of the Dissolve water example
+# --- 1. Gather the existing EPSR files in a fresh folder --------------------------------
+folder = OUTPUT / "epsr_run"
+if folder.exists():
+    shutil.rmtree(folder)
+folder.mkdir(parents=True)
+for name in ["Water.mol", "waterbox.EPSR.inp", *(f"{s}.NWTS.dat" for s in SAMPLES)]:
+    shutil.copy2(EPSR_INPUTS / name, folder / name)
+for data_file in DATA.glob("*.mint01"):  # the data files named in waterbox.EPSR.inp
+    shutil.copy2(data_file, folder / data_file.name)
 
-# 1. Gather the inputs in a fresh folder: setup files plus the measured data.
-epsr.copy_folder(SETUP_INPUTS, WORK_FOLDER, overwrite=True)
-for data_file in NEUTRON_DATA.glob("*.mint01"):
-    shutil.copy2(data_file, WORK_FOLDER / data_file.name)
+# --- 2. Build the box with EPSR's setup programs (validation/water/steps.txt) -----------
+tools.makemole(folder, "Water")  # Water.mol -> the one-molecule template Water.ato
+tools.mixato(folder, [("Water", 1000)], density=0.1, box="waterbox")  # atoms/Å³
+tools.randomise(folder, "waterbox")  # random positions and orientations
+tools.fmole(folder, "waterbox", 100)  # relax the molecular geometry
+for sample in SAMPLES:
+    tools.nwts(folder, f"{sample}.NWTS.dat")  # -> <sample>.NWTStot.wts
 
-# 2. Build the box with the EPSR setup programs.
-tools.run(WORK_FOLDER, "makemole", ["Water"])  # Water.mol -> Water.ato template
-tools.run(WORK_FOLDER, "mixato", answers=["1", "Water", "1000", "0.1", "waterbox"])
-tools.run(WORK_FOLDER, "randomise", ["waterbox"])  # random positions and orientations
-(WORK_FOLDER / "Water.mol").unlink()  # fmole refuses to run while the .mol is present
-tools.run(WORK_FOLDER, "fmole", ["waterbox", "100"])  # relax the molecule geometry
-for sample in ("H2O", "D2O", "HDO"):
-    tools.nwts(WORK_FOLDER, f"{sample}.NWTS.dat")  # neutron weights per isotopic sample
+# --- 3. Open the folder as a Project ----------------------------------------------------
+project = epsr.Project(folder)  # finds waterbox.EPSR.inp
+print(project.status())  # not run yet; 3 datasets (named after the data files)
+settings = project.settings  # the keyword values in the files, by EPSR name
+print({name: settings[name] for name in ("ntimes", "qmin", "feedback")})
+print(settings["data"]["SLS18502-D2O"])  # the keywords of one data block
 
-# Record every EPSR iteration for the figures (step 6) when epsr.vis is available.
-recorder = vis.TrajectoryRecorder(case="water") if vis.available() else None
-project = epsr.Project(WORK_FOLDER, "waterbox.EPSR.inp")
+# --- 4. Refine --------------------------------------------------------------------------
+# A folder not made by Project.create does not know its system, so name the epsr.vis
+# case (atom colours and sizes for the figures) when recording.
+record = epsr.vis.TrajectoryRecorder(case="water") if epsr.vis.available() else False
+equilibration = project.equilibrate(iterations=EQUILIBRATION, record=record)
+#   the .inp asks for a scratch start (ireset 1, iinit 1, niter 1): 1 + 99 iterations
+history = project.refine(ereq=3.0, runs=2, iterations=REFINEMENT, record=record)
 
-
-def run(simulation: epsr.Simulation) -> epsr.Summary:
-    """One EPSR run, recorded iteration by iteration when epsr.vis is available."""
-    if recorder is None:
-        return simulation.run()
-    return vis.run_recorded(simulation, recorder)
-
-
-# 3. EPSR: scratch start, then equilibrate on the reference potential (ereq = 0).
-run(project.simulation())
-equilibrated = run(project.simulation(overrides={"niter": EQUILIBRATION_ITERATIONS}))
-
-# 4. Switch on the empirical potential and refine twice.
-refinement = {
-    "n_runs": 2,
-    "overrides": {"niter": REFINEMENT_ITERATIONS},
-    "initial_overrides": {"ereq": REQUESTED_EP_AMPLITUDE},
-}
-if recorder is None:
-    history = epsr.refine(project, progress=False, **refinement)
-else:
-    history = vis.refine_recorded(project, recorder=recorder, **refinement)
-
-# 5. Results.
-simulation = project.simulation()  # reads the accumulated results back from the folder
-print(f"R-factor: {equilibrated.r_factor:.3e} on the reference potential")
-print(
-    f"          {history.r_factor[-1]:.3e} after refinement with the empirical potential"
-)
-for dataset_index, dataset in enumerate(simulation.datasets):
-    fit = simulation.fit(dataset_index)
-    print(f"  {dataset.name:18s} fitted over Q = {fit.q[0]:.2f} to {fit.q[-1]:.2f} 1/Å")
-
-r = simulation.r
-for first_type, second_type, low, high, meaning in (
-    ("OW", "OW", 2.0, 4.0, "nearest-neighbour waters"),
-    ("OW", "HW", 1.5, 2.3, "hydrogen bond"),
-):
-    gr = simulation.gr_inter(first_type, second_type)
-    window = (r > low) & (r < high)
-    peak = r[window][gr[window].argmax()]
-    print(f"{first_type}-{second_type} first peak at {peak:.2f} Å ({meaning})")
-
-try:
-    import matplotlib
-
-    matplotlib.use("Agg")  # write the figure to a file, no display needed
-    axes = epsr.plot.fits(simulation)
-    figure_file = OUTPUT_ROOT / "05_experimental_water_fits.png"
-    axes.figure.savefig(figure_file, dpi=120)
-    print("fits to the three datasets written to", figure_file)
-except ImportError:
-    print("(install the 'plot' extra for a figure of the fits)")
-
-# 6. Figures of the whole refinement, iteration by iteration (epsr.vis).
-if recorder is None:
-    print("(install the 'plot' extra for figures of the refinement)")
-    sys.exit()
-import matplotlib.pyplot as plt  # noqa: E402  (available: epsr.vis imported)
-
-trajectory = recorder.trajectory()
-recorder.save(WORK_FOLDER / "trajectory")  # reload later: vis.Trajectory.load(...)
-print(f"\n{trajectory.nsteps} EPSR iterations recorded; figures in {FIGURE_FOLDER}")
-vis.make_report(trajectory, FIGURE_FOLDER, verbose=False)  # 01-09 + summary tables
-fit_quality = vis.metrics.fit_metrics(trajectory)
-for dataset_index, name in enumerate(trajectory.datasets):
+# --- 5. Results -------------------------------------------------------------------------
+result = project.results()
+print()
+print(f"R-factor: {equilibration.r_factor[-1]:.3e} on the reference potential")
+print(f"          {history.r_factor[-1]:.3e} with the empirical potential")
+for name in project.dataset_names:
+    fit = result.fit(name)
     print(
-        f"  {name:18s} R² of the fit: {fit_quality['r2'][0, dataset_index]:7.3f}"
-        f" (first iteration) -> {fit_quality['r2'][-1, dataset_index]:.3f} (last)"
+        f"  {name:18s} fitted over Q = {fit.q[0]:.2f}-{fit.q[-1]:.2f} 1/Å, "
+        f"R = {result.summary.r_factor_for(name):.2e}"
     )
+for a, b, window, meaning in (
+    ("OW", "OW", (2.0, 4.0), "nearest-neighbour waters"),
+    ("OW", "HW", (1.5, 2.3), "hydrogen bond"),
+):
+    peak = epsr.analysis.first_peak(result.r, result.gr_inter(a, b), window)
+    print(f"{a}-{b} first peak at {peak:.2f} Å ({meaning})")
 
-# The partial g(r) against the experimental partials of Soper (2000), 298 K:
-# experiment solid, EPSR in the same colour but translucent.
-reference_partials = vis.load_reference_partials(
-    {
-        "OW-OW": REFERENCE_PARTIALS / "h2o298aoogor.txt",
-        "OW-HW": REFERENCE_PARTIALS / "h2o298aohgor.txt",
-        "HW-HW": REFERENCE_PARTIALS / "h2o298ahhgor.txt",
-    }
-)
-figure = vis.plots.partials_vs_reference(
-    trajectory, reference_partials, source="experiment (Soper 2000, 298 K)"
-)
-figure.savefig(FIGURE_FOLDER / "10_partials_vs_experiment.png", dpi=150)
-plt.close(figure)
+if not record:
+    print("(install the 'plot' extra for the figures)")
+    raise SystemExit
 
-# Hydrogen bonds per molecule in the final configuration (O···H < 2.45 Å, other molecule).
-labels, molecule = trajectory.atom_labels, trajectory.molecule_of_atom
-oxygen, hydrogen, _ = vis.metrics.neighbour_pairs(
-    trajectory.positions[-1], trajectory.box(-1), labels, "OW", "HW", 2.45
-)
-hydrogen_bonds = (molecule[oxygen] != molecule[hydrogen]).sum()
-print(
-    f"  {2 * hydrogen_bonds / trajectory.meta['nmol']:.2f} hydrogen bonds per molecule"
-)
+# --- 6. Figures (epsr.vis) --------------------------------------------------------------
+import matplotlib  # noqa: E402  (available: epsr.vis.available() is True)
 
-if DRAW_3D:
-    try:
-        from epsr.vis.viewer import ConfigurationViewer
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
 
-        viewer = ConfigurationViewer(
-            trajectory,
-            gr="total",
-            slab=10.0,
-            reference=reference_partials,
-            off_screen=True,
-        )
-        viewer.screenshot(FIGURE_FOLDER / "11_configuration.png", step=-1)
-        print("  3D configuration + partial g(r): 11_configuration.png")
-    except ImportError:
-        print("  (install the 'viewer' extra for the 3D configuration image)")
+from epsr import vis  # noqa: E402
+
+figures = OUTPUT / "figures"
+trajectory = project.trajectory()  # every iteration recorded (both stages)
+trajectory.save(OUTPUT / "trajectory")  # reload later: vis.Trajectory.load(...)
+print(f"\n{trajectory.nsteps} EPSR iterations recorded; figures in {figures}")
+vis.make_report(trajectory, figures, verbose=False)  # 01-09 + summary tables
+axes = epsr.plot.fits(result)
+axes.figure.savefig(figures / "fits.png", dpi=150)
+plt.close("all")

@@ -2,11 +2,11 @@
 
 Run from the ``python/`` folder:
 
-    uv run python examples/08_cu_btc/cu_btc.py            # ~4 minutes
-    uv run python examples/08_cu_btc/cu_btc.py --quick    # ~30 s
+    uv run python examples/08_cu_btc_from_scratch/cu_btc_from_scratch.py            # ~4 minutes
+    uv run python examples/08_cu_btc_from_scratch/cu_btc_from_scratch.py --quick    # ~30 s
 
 One cubic unit cell of the metal-organic framework (a = 26.3336 Å, 624 atoms) is read
-from a PDB file and fitted to the NIMROD data of the empty framework, with Bragg peaks
+from a PDB file (``CuBTC.pdb`` next to this script) and fitted to the NIMROD data of the empty framework, with Bragg peaks
 calculated up to Q = 5 1/Å. Unlike example 07 the configuration is not built from
 molecules: ``readpdb`` finds the molecules (24 Cu2 paddlewheels and 32 benzene-
 tricarboxylate linkers) by bond detection, and the crystal positions are kept. The
@@ -25,9 +25,6 @@ from epsr.system import AtomType, Framework, System
 
 EXAMPLE_FOLDER = Path(__file__).resolve().parent
 REPOSITORY = EXAMPLE_FOLDER.parents[2]
-CASE = (
-    REPOSITORY / "validation" / "cu-btc"
-)  # CuBTC.pdb lives here (made by make_pdb.py)
 DATA = REPOSITORY / "experimental_data" / "cu-btc" / "data"
 OUTPUT = Path(os.environ.get("EPSR_EXAMPLES_WORK", EXAMPLE_FOLDER)) / "output"
 
@@ -48,7 +45,7 @@ C3 = AtomType("C3", element="C", epsilon=0.39748, sigma=3.473, charge=-0.014)
 H = AtomType("H", element="H", epsilon=0.06276, sigma=2.846, charge=0.109, mass=1.008)
 
 framework = Framework.from_pdb(  # readpdb; checked against the PDB label order
-    CASE / "CuBTC.pdb",
+    EXAMPLE_FOLDER / "CuBTC.pdb",  # from validation/cu-btc/ (made by make_pdb.py)
     types=[CU, OX, C1, C2, C3, H],
     vdw_factor=0.68,  # bond detection: finds the Dissolve bonds + the Cu-Cu pairs
     dihedrals=False,
